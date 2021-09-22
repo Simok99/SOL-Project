@@ -42,7 +42,9 @@ node* popQueue(queue* queue){
     {
         return NULL;
     }
-    return queue->head;
+    node* oldHead = queue->head;
+    queue->head = queue->head->next;
+    return oldHead;
 }
 
 void deQueue(queue* queue){
