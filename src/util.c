@@ -19,13 +19,13 @@ config* readConfig(char* pathname){
         fprintf(stderr, "Errore fatale malloc\n");
         return NULL;
     }
-
+    
     //Legge il file di configurazione riga per riga
     while (fgets(buffer, 256, f) != NULL)
     {
         char* separator = "=";
         char* token = strtok(buffer, separator);
-        
+
         if(strstr(token, "numberOfFiles") != NULL){
             conf->numFiles = atoi(strtok(NULL, separator));
         }
@@ -39,15 +39,15 @@ config* readConfig(char* pathname){
         }
 
         if (strstr(token, "socketPath") != NULL){
+            remSpaces(&token);
             strcpy(conf->socketPath, strtok(NULL, "\r\n"));
         }
 
         if (strstr(token, "logPath") != NULL){
+            remSpaces(&token);
             strcpy(conf->logPath, strtok(NULL, "\r\n"));
         }
     }
-
-    printf("PATH=%s0\n", conf->logPath);
     fclose(f);
     free(buffer);
     

@@ -148,4 +148,19 @@ static inline int isNumber(const char *s, long *n)
     return 1; // non e' un numero
 }
 
+//Metodo utilizzato per rimuovere spazi da una stringa
+void remSpaces(char **string)
+{
+    //La stringa contiene spazi, la ripulisco
+    int c = 0, i = 0;
+    while (string[i])
+    {
+        if (string[i] == ' ')
+        {
+            string[c++] = string[i];
+        }
+    }
+    string[c] = '\0';
+}
+
 #endif
