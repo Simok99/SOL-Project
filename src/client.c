@@ -15,20 +15,6 @@ msg request;    //Richiesta di un client contenente data e size
 queue* requestQueue;    //Coda delle richieste che il client effettua
 unsigned int sleepTime = 0;     //Tempo che intercorre tra una richiesta e l'altra in millisecondi
 
-//Metodo utilizzato per rimuovere spazi da una stringa
-void remSpaces(char** string){
-    //La stringa contiene spazi, la ripulisco
-    int c = 0, i = 0;
-    while (string[i])
-    {
-        if (string[i] == ' ')
-        {
-            string[c++] = string[i];
-        }
-    }
-    string[c] = '\0';
-}
-
 /* Metodo utilizzato per i comandi -W, -r, -l, -u, -c: rimuove la virgola e divide la stringa in N stringhe
     restituite in un array, imposta inoltre il valore corretto del numero di file
 */
