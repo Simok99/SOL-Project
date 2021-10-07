@@ -32,10 +32,10 @@ pthread_mutex_t logLock = PTHREAD_MUTEX_INITIALIZER;
 bool needToQuit = false, needToHangUp = false;
 
 /* VARIABILI PER STATISTICHE */
-static int maxFiles;       //Massimo numero di file presenti
-static long maxMemory;     //Memoria massima occupata in byte
-static int algoExecutions;     //Numero di volte che l'algoritmo di rimpiazzamento è stato eseguito
-static int lastFiles;     //Numero di file presenti alla chiusura del server
+static int maxFiles = 0;       //Massimo numero di file presenti
+static long maxMemory = 0;     //Memoria massima occupata in byte
+static int algoExecutions = 0;     //Numero di volte che l'algoritmo di rimpiazzamento è stato eseguito
+static int lastFiles = 0;     //Numero di file presenti alla chiusura del server
 
 /* DICHIARAZIONE FUNZIONI UTILIZZATE */
 
@@ -54,6 +54,12 @@ void checkConfig();
 //Funzione utilizzata dal thread di gestione dei segnali
 void* signalTask(void* args);
 
+//Funzione utilizzata per aggiornare il file descriptor più grande presente
+int updateMax(fd_set set, int fdmax);
+
+//Funzione utilizzata da un qualsiasi thread worker
+void workerTask(void* args);
+
 /* MAIN */
 int main(int argc, char *argv[])
 {
@@ -65,11 +71,21 @@ int main(int argc, char *argv[])
     }
     else checkConfig();
 
+    //Apre il file di log
     if ((logFile=fopen(conf->logPath, "w")) == NULL)
     {
         fprintf(stderr, ERROR "Errore in apertura del file di log\n");
         exit(EXIT_FAILURE);
     }
+
+    //Crea la tabella hash dei file, con dimensione massima specificata nella configurazione
+    hashTable = icl_hash_create(conf->numFiles, NULL, NULL);
+
+    //Inizializza la lista dei file
+    initFileList(filesList);
+
+    //Crea un threadpool con numero di workers specificato nella configurazione
+    threadPool = createThreadPool(conf->numWorkers, 0);
 
     //Maschera per i segnali
     sigset_t mask;
@@ -81,6 +97,7 @@ int main(int argc, char *argv[])
     if (pthread_sigmask(SIG_BLOCK, &mask, NULL) != 0)
     {
         fprintf(stderr, ERROR "Errore nell'applicazione della maschera dei segnali\n");
+        cleanUp();
         exit(EXIT_FAILURE);
     }
 
@@ -91,6 +108,7 @@ int main(int argc, char *argv[])
     if (pipe(signalPipe) == -1 || pipe(requestPipe) == -1)
     {
         fprintf(stderr, ERROR "Errore nella creazione delle pipe\n");
+        cleanUp();
         exit(EXIT_FAILURE);
     }
     
@@ -102,11 +120,7 @@ int main(int argc, char *argv[])
     if (pthread_create(&signalThread, NULL, signalTask, &sigThrArgs) != 0)
     {
         fprintf(stderr, ERROR "Errore nella creazione del thread di gestione dei segnali\n");
-        exit(EXIT_FAILURE);
-    }
-    if (pthread_join(signalThread, NULL) != 0)
-    {
-        fprintf(stderr, ERROR "Errore nella join con il thread di gestione dei segnali\n");
+        cleanUp();
         exit(EXIT_FAILURE);
     }
     
@@ -116,23 +130,143 @@ int main(int argc, char *argv[])
     if (fdSocket == -1)
     {
         fprintf(stderr, ERROR "Errore nella creazione della socket '%s'\n", conf->socketPath);
+        if (pthread_join(signalThread, NULL) != 0)
+        {
+            fprintf(stderr, ERROR "Errore nella join con il thread di gestione dei segnali\n");
+        }
+        cleanUp();
         exit(EXIT_FAILURE);
     }
+    struct sockaddr_un sa;
+    memset(&sa, '0', sizeof(sa));
+    strncpy(sa.sun_path, conf->socketPath, strlen(conf->socketPath) + 1);
+    sa.sun_family = AF_UNIX;
+    if (bind(fdSocket, &sa, sizeof(sa)) == -1)
+    {
+        fprintf(stderr, ERROR "Errore nella bind\n");
+        if (pthread_join(signalThread, NULL) != 0)
+        {
+            fprintf(stderr, ERROR "Errore nella join con il thread di gestione dei segnali\n");
+        }
+        cleanUp();
+        exit(EXIT_FAILURE);
+    }
+    if (listen(fdSocket, MAXBACKLOG) != 0)
+    {
+        fprintf(stderr, ERROR "Errore nella listen\n");
+        if (pthread_join(signalThread, NULL) != 0)
+        {
+            fprintf(stderr, ERROR "Errore nella join con il thread di gestione dei segnali\n");
+        }
+        cleanUp();
+        exit(EXIT_FAILURE);
+    }
+
+    //Setup select
+    fd_set set, tempset;
+    FD_ZERO(&set);
+    FD_ZERO(&tempset);
+    FD_SET(fdSocket, &set);
+    int fdMaximum;
+    if (fdSocket > signalPipe[0])
+    {
+        fdMaximum = fdSocket;
+    }
+    else fdMaximum = signalPipe[0];
     
 
     //Server pronto per l'esecuzione
     bool running = true;
-
-    wLog(INFO "Server in avvio\n");
+    printf(INFO "Server pronto\n\n");
+    wLog(INFO "Server pronto\n\n");
 
     while (running)
     {
-        //Server Operativo
+        tempset = set;
+        if (select(fdMaximum + 1, &tempset, NULL, NULL, NULL) == -1)
+        {
+            fprintf(stderr, ERROR "Errore nella select\n");
+            if (pthread_join(signalThread, NULL) != 0)
+            {
+                fprintf(stderr, ERROR "Errore nella join con il thread di gestione dei segnali\n");
+            }
+            cleanUp();
+            exit(EXIT_FAILURE);
+        }
+
+        //Nuova richiesta ricevuta
+        for (int i = 0; i < fdMaximum; i++)
+        {
+            if (FD_ISSET(i, &tempset))
+            {
+                long fdNew;
+                if (i == fdSocket)
+                {
+                    //Nuova richiesta di connessione
+                    if (fdNew = accept(fdSocket, (struct sockaddr*)NULL, NULL) == -1)
+                    {
+                        fprintf(stderr, ERROR "Errore nell'accept di una nuova connessione\n");
+                        if (pthread_join(signalThread, NULL) != 0)
+                        {
+                            fprintf(stderr, ERROR "Errore nella join con il thread di gestione dei segnali\n");
+                        }
+                        cleanUp();
+                        exit(EXIT_FAILURE);
+                    }
+
+                    FD_SET(fdNew, &set);
+                    if (fdNew > fdMaximum)
+                    {
+                        fdMaximum = fdNew;
+                    }
+                    printf(INFO "Nuovo client connesso\n");
+                    wLog(INFO "Nuovo client connesso al server\n");
+                }
+                else if (i == signalPipe[0])
+                {
+                    //Nuovo segnale ricevuto
+                    running = false;
+                    break;
+                }
+                else if (i == requestPipe[0])
+                {
+                    //Un thread ha eseguito una richiesta
+                    long fdDone;
+                    if (readn(requestPipe[0], &fdDone, sizeof(long)) == -1)
+                    {
+                        fprintf(stderr, WARNING "Errore in lettura su un file descriptor di un thread\n");
+                        continue;
+                    }
+                    FD_SET(fdDone, &set);
+                    if (fdDone > fdMaximum)
+                    {
+                        fdMaximum = fdDone;
+                    }
+                }
+                else {
+                    //Una richiesta di un client gia' connesso
+                    //TODO invia richiesta a threadPool
+                }
+            }
+        }
     }
+
+    close(fdSocket);
 
     printFinalInfos();
 
     cleanUp();
+
+    if (pthread_join(signalThread, NULL) != 0)
+    {
+        fprintf(stderr, ERROR "Errore nella join con il thread di gestione dei segnali\n");
+        exit(EXIT_FAILURE);
+    }
+
+    if (fclose(logFile) != 0)
+    {
+        fprintf(stderr, WARNING "Errore in chiusura del file di log\n");
+    }
 
     return 0;
 }
@@ -155,7 +289,7 @@ void printFinalInfos(){
     "\nNumero di file massimi memorizzati: %d"
     "\nNumero massima raggiunta (in MB): %ld"
     "\nNumero di esecuzioni dell'algoritmo di rimpiazzamento: %d"
-    "\nFile presenti nello storage alla chiusura: %d",
+    "\nFile presenti nello storage alla chiusura: %d\n\n\n",
     maxFiles, maxMemory/1000000, algoExecutions, lastFiles);
 
     //Scrive sul file di log
@@ -164,14 +298,27 @@ void printFinalInfos(){
     "\nNumero di file massimi memorizzati: %d"
     "\nNumero massima raggiunta (in MB): %ld"
     "\nNumero di esecuzioni dell'algoritmo di rimpiazzamento: %d"
-    "\nFile presenti nello storage alla chiusura: %d",
+    "\nFile presenti nello storage alla chiusura: %d\n\n\n",
     maxFiles, maxMemory/1000000, algoExecutions, lastFiles);
+    icl_hash_dump(logFile, hashTable);
     fflush(logFile);
     pthread_mutex_unlock(&logLock);
 }
 
 void cleanUp(){
-    //TODO implement cleanup
+    unlink(conf->socketPath);
+    icl_hash_destroy(hashTable, free, free);
+    destroyFileList(filesList);
+    if (needToQuit)
+    {
+        destroyThreadPool(threadPool, 1);
+    }
+    else if (needToHangUp)
+    {
+        destroyThreadPool(threadPool, 0);
+    }
+    else destroyThreadPool(threadPool, 1);
+    free(conf);
 }
 
 void checkConfig(){
@@ -255,5 +402,19 @@ void* signalTask(void* args){
             return NULL;
         }
     }
-    
+    return NULL;
+}
+
+int updateMax(fd_set set, int fdmax){
+    for (int i = (fdmax - 1); i >= 0; --i)
+    {
+        if (FD_ISSET(i, &set))
+            return i;
+    }
+    assert(1 == 0);
+    return -1;
+}
+
+void workerTask(void* args){
+    //TODO Implement worker task
 }
