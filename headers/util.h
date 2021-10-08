@@ -1,7 +1,9 @@
 #if !defined(_UTIL_H)
 #define _UTIL_H
 
+#define _POSIX_C_SOURCE 2001112L
 #include <stdarg.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdbool.h>
