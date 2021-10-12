@@ -2,8 +2,11 @@
 #define _UTIL_H
 
 #define _POSIX_C_SOURCE 2001112L
+#define _GNU_SOURCE
 #include <stdarg.h>
 #include <limits.h>
+#include <libgen.h>
+#include <dirent.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdbool.h>
@@ -48,6 +51,20 @@ enum flags{
     NOFLAGS = 0
 };
 
+enum OP_CODE{
+    OPENFILE = 0,
+    READFILE = 1,
+    READNFILES = 2,
+    WRITEFILE = 3,
+    APPENDTOFILE = 4,
+    LOCKFILE = 5,
+    UNLOCKFILE = 6,
+    CLOSEFILE = 7,
+    REMOVEFILE = 8,
+    CLOSECONNECTION = 9,
+    MWFILE = 10
+};
+
 //Struttura dati contenente i dati di configurazione
 typedef struct config{
     unsigned int numFiles;
@@ -59,12 +76,20 @@ typedef struct config{
 
 //Struttura dati che rappresenta un messaggio inviato dal client al server o viceversa
 typedef struct msg{
-    void* data;
-    size_t size;
+    void* command;  //Utilizzato dal client, contiene il comando inviato
+    void* data;     //Contiene dati generici
+    size_t size;    //La dimensione associata a data
 } msg;
 
 //Funzione utilizzata per effettuare il parsing del file configurazione
 config * readConfig(char* pathname);
+
+//Metodo utilizzato per rimuovere spazi da una stringa
+void remSpaces(char **string);
+
+/*Scrive il contenuto di un file sul disco. Se dirname non esiste, verrà creata.
+Ritorna 0 in caso di successo, -1 in caso di errore.*/
+int writeOnDisk(char *pathname, void *data, const char *dirname, size_t fileSize);
 
 #define SYSCALL_EXIT(name, r, sc, str, ...) \
     if ((r = sc) == -1)                     \
@@ -112,6 +137,71 @@ config * readConfig(char* pathname);
         exit(errno_copy);                      \
     }
 
+#define LOCK(l)                                  \
+    if (pthread_mutex_lock(l) != 0)              \
+    {                                            \
+        fprintf(stderr, "ERRORE FATALE lock\n"); \
+        pthread_exit((void *)EXIT_FAILURE);      \
+    }
+#define LOCK_RETURN(l, r)                        \
+    if (pthread_mutex_lock(l) != 0)              \
+    {                                            \
+        fprintf(stderr, "ERRORE FATALE lock\n"); \
+        return r;                                \
+    }
+
+#define UNLOCK(l)                                  \
+    if (pthread_mutex_unlock(l) != 0)              \
+    {                                              \
+        fprintf(stderr, "ERRORE FATALE unlock\n"); \
+        pthread_exit((void *)EXIT_FAILURE);        \
+    }
+#define UNLOCK_RETURN(l, r)                        \
+    if (pthread_mutex_unlock(l) != 0)              \
+    {                                              \
+        fprintf(stderr, "ERRORE FATALE unlock\n"); \
+        return r;                                  \
+    }
+#define WAIT(c, l)                               \
+    if (pthread_cond_wait(c, l) != 0)            \
+    {                                            \
+        fprintf(stderr, "ERRORE FATALE wait\n"); \
+        pthread_exit((void *)EXIT_FAILURE);      \
+    }
+/* ATTENZIONE: t e' un tempo assoluto! */
+#define TWAIT(c, l, t)                                                    \
+    {                                                                     \
+        int r = 0;                                                        \
+        if ((r = pthread_cond_timedwait(c, l, t)) != 0 && r != ETIMEDOUT) \
+        {                                                                 \
+            fprintf(stderr, "ERRORE FATALE timed wait\n");                \
+            pthread_exit((void *)EXIT_FAILURE);                           \
+        }                                                                 \
+    }
+#define SIGNAL(c)                                  \
+    if (pthread_cond_signal(c) != 0)               \
+    {                                              \
+        fprintf(stderr, "ERRORE FATALE signal\n"); \
+        pthread_exit((void *)EXIT_FAILURE);        \
+    }
+#define BCAST(c)                                      \
+    if (pthread_cond_broadcast(c) != 0)               \
+    {                                                 \
+        fprintf(stderr, "ERRORE FATALE broadcast\n"); \
+        pthread_exit((void *)EXIT_FAILURE);           \
+    }
+
+    static inline int TRYLOCK(pthread_mutex_t *l)
+{
+    int r = 0;
+    if ((r = pthread_mutex_trylock(l)) != 0 && r != EBUSY)
+    {
+        fprintf(stderr, "ERRORE FATALE unlock\n");
+        pthread_exit((void *)EXIT_FAILURE);
+    }
+    return r;
+}
+
 /**
  * \brief Procedura di utilita' per la stampa degli errori
  *
@@ -156,21 +246,6 @@ static inline int isNumber(const char *s, long *n)
         return 0; // successo
     }
     return 1; // non e' un numero
-}
-
-//Metodo utilizzato per rimuovere spazi da una stringa
-void remSpaces(char **string)
-{
-    //La stringa contiene spazi, la ripulisco
-    int c = 0, i = 0;
-    while (string[i])
-    {
-        if (string[i] == ' ')
-        {
-            string[c++] = string[i];
-        }
-    }
-    string[c] = '\0';
 }
 
 /** Evita letture parziali

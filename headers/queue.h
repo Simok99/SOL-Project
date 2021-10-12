@@ -26,11 +26,7 @@ queue* createQueue();
 //Inserisce un dato e opCode associato alla fine di una coda
 void insertQueue(queue* queue, unsigned int opCode, void* data);
 
-<<<<<<< HEAD
-//Restituisce la testa della coda (e successivamente viene rimossa dalla coda)
-=======
 //Restituisce la testa della coda (la testa non viene rimossa)
->>>>>>> 3cbc2e64c27f0024cfa9f45579bab529e527cfe1
 node* popQueue(queue* queue);
 
 //Rimuove la testa della coda
