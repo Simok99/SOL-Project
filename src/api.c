@@ -5,16 +5,24 @@ static long fdSocket;
 
 /* FUNZIONE DI UTILITA' PER CREAZIONE DEI MESSAGGI DA INVIARE */
 
-//Restituisce un messaggio: formato dati "fdSocket,Operazione+parametri,Flags"
-msg buildRequest(char **data){
-    void *buffer;
-    for (int i = 0; i < sizeof(data) / sizeof(data[0]); i++)
+//Restituisce un messaggio: formato comando "fdSocket,Operazione+parametri,Flags"
+msg buildRequest(char **commands, void* data){
+    void* command = malloc(sizeof(char)*1024);
+    for (int i = 0; i < 3; i++)
     {
-        snprintf(buffer, sizeof(data), "%s,", data[i]);
+        if (commands[i] == NULL)
+        {
+            sprintf(command, "$NULL");
+            continue;
+        }
+        
+        sprintf(command, "%s,", commands[i]);
     }
     msg req;
-    req.size = sizeof(buffer);
-    req.data = buffer;
+    req.command = command;
+    req.size = sizeof(data);
+    req.data = data;
+    free(command);
     return req;
 }
 
@@ -92,27 +100,114 @@ int openFile(const char *pathname, int flags){
         return -1;
     }
 
-    char* params[2];
+    char** params = malloc(sizeof(char*)*3);
     snprintf(params[0], sizeof(long), "%ld", fdSocket);
-    char* operation;
-    strcpy(operation, "OPENFILE ");
-    strcat(operation, realpath(pathname, NULL));
+    char* operation = malloc(sizeof(char)*512);
+    snprintf(operation, sizeof(char)*512, "%u %s", OPENFILE, realpath(pathname, NULL));
     params[1] = operation;
+    free(operation);
     snprintf(params[2], sizeof(int), "%d", flags);
 
-    msg request = buildRequest(params);
+    msg request = buildRequest(params, NULL);
+    free(params);
 
     if (writen(fdSocket, (void*)&request, sizeof(request)) != 1)
     {
-        fprintf(stderr, "Errore nell'invio della richiesta al server");
+        fprintf(stderr, "Errore nell'invio della richiesta al server\n");
         return -1;
     }
     
     msg response;
-    if(readn(fdSocket, &response, sizeof(response))){
-        fprintf(stderr, "Errore nella ricezione della risposta del server");
+    if(readn(fdSocket, &(response), sizeof(response)) == -1){
+        fprintf(stderr, "Errore nella ricezione della risposta del server\n");
         return -1;
     }
 
+    //La risposta del server sara' un intero
+    int replyCode = atoi((char*)response.data);
+    if (replyCode == 0) return 0;
+    
+    return -1;
+}
+
+int readFile(const char *pathname, void **buf, size_t *size){
+    if (pathname == NULL)
+    {
+        fprintf(stderr, "Errore: pathname socket non valido\n");
+        errno = EINVAL;
+        return -1;
+    }
+
+    char **params = malloc(sizeof(char *) * 3);
+    snprintf(params[0], sizeof(long), "%ld", fdSocket);
+    char *operation = malloc(sizeof(char)*512);
+    snprintf(operation, sizeof(char) * 512, "%u %s", READFILE, realpath(pathname, NULL));
+    params[1] = operation;
+    params[2] = NULL;
+
+    msg request = buildRequest(params, NULL);
+    free(params);
+
+    if (writen(fdSocket, (void *)&request, sizeof(request)) != 1)
+    {
+        fprintf(stderr, "Errore nell'invio della richiesta al server\n");
+        return -1;
+    }
+
+    msg response;
+    if (readn(fdSocket, &(response), sizeof(response)) == -1)
+    {
+        fprintf(stderr, "Errore nella ricezione della risposta del server\n");
+        return -1;
+    }
+
+    //La risposta del server sara' il contenuto del file e la sua lunghezza
+    *size = response.size;
+    void* data = response.data;
+    //TODO size+1 in memcpy?
+    memcpy(*buf, data, response.size);
     return 0;
+}
+
+
+
+
+
+int closeFile(const char *pathname){
+    if (pathname == NULL)
+    {
+        fprintf(stderr, "Errore: pathname socket non valido\n");
+        errno = EINVAL;
+        return -1;
+    }
+
+    char **params = malloc(sizeof(char *) * 3);
+    snprintf(params[0], sizeof(long), "%ld", fdSocket);
+    char *operation = malloc(sizeof(char) * 512);
+    snprintf(operation, sizeof(char) * 512, "%u %s", CLOSEFILE, realpath(pathname, NULL));
+    params[1] = operation;
+    params[2] = NULL;
+
+    msg request = buildRequest(params, NULL);
+    free(params);
+
+    if (writen(fdSocket, (void *)&request, sizeof(request)) != 1)
+    {
+        fprintf(stderr, "Errore nell'invio della richiesta al server\n");
+        return -1;
+    }
+
+    msg response;
+    if (readn(fdSocket, &(response), sizeof(response)) == -1)
+    {
+        fprintf(stderr, "Errore nella ricezione della risposta del server\n");
+        return -1;
+    }
+
+    //La risposta del server sara' un intero
+    int replyCode = *((int *)response.data);
+    if (replyCode == 0)
+        return 0;
+
+    return -1;
 }

@@ -11,14 +11,8 @@
 /* $Id: icl_hash.c 2838 2011-11-22 04:25:02Z mfaverge $ */
 /* $UTK_Copyright: $ */
 
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
-#include <assert.h>
-
+#include "util.h"
 #include "hash.h"
-
-#include <limits.h>
 
 #define BITS_IN_int     ( sizeof(int) * CHAR_BIT )
 #define THREE_QUARTERS  ((int) ((BITS_IN_int * 3) / 4))
@@ -113,16 +107,18 @@ icl_hash_find(icl_hash_t *ht, void* key)
 
     /*INIZIO SEZIONE CRITICA BUCKET*/
 
-    pthread_mutex_lock(&(curr->lock));
+    pthread_mutex_lock(&(ht->buckets[hash_val]->lock));
 
-    for (curr=ht->buckets[hash_val]; curr != NULL; curr=curr->next)
+    for (curr=ht->buckets[hash_val]; curr != NULL; curr=curr->next){
         if ( ht->hash_key_compare(curr->key, key))
-            pthread_mutex_unlock(&(curr->lock));
+        {
+            pthread_mutex_unlock(&(ht->buckets[hash_val]->lock));
 
             /*ELEMENTO TROVATO FINE SEZIONE CRITICA BUCKET*/
             return(curr->data);
-
-    pthread_mutex_unlock(&(curr->lock));
+        }
+    }
+    pthread_mutex_unlock(&(ht->buckets[hash_val]->lock));
 
     /*ELEMENTO NON TROVATO FINE SEZIONE CRITICA BUCKET*/
     return NULL;
@@ -199,7 +195,7 @@ icl_hash_update_insert(icl_hash_t *ht, void* key, void *data, void **olddata)
 
     /*INIZIO SEZIONE CRITICA BUCKET*/
 
-    pthread_mutex_lock(&(curr->lock));
+    pthread_mutex_lock(&(ht->buckets[hash_val]->lock));
 
     /* Scan bucket[hash_val] for key */
     for (prev=NULL,curr=ht->buckets[hash_val]; curr != NULL; prev=curr, curr=curr->next)
@@ -227,7 +223,7 @@ icl_hash_update_insert(icl_hash_t *ht, void* key, void *data, void **olddata)
     ht->buckets[hash_val] = curr;
     ht->nentries++;
 
-    pthread_mutex_unlock(&(curr->lock));
+    pthread_mutex_unlock(&(ht->buckets[hash_val]->lock));
 
     /*FINE SEZIONE CRITICA BUCKET*/
 
@@ -259,7 +255,7 @@ int icl_hash_delete(icl_hash_t *ht, void* key, void (*free_key)(void*), void (*f
 
     /*INIZIO SEZIONE CRITICA BUCKET*/
 
-    pthread_mutex_lock(&(ht->buckets[hash_val]));
+    pthread_mutex_lock(&(ht->buckets[hash_val]->lock));
 
     for (curr=ht->buckets[hash_val]; curr != NULL; )  {
         if ( ht->hash_key_compare(curr->key, key)) {
@@ -273,7 +269,7 @@ int icl_hash_delete(icl_hash_t *ht, void* key, void (*free_key)(void*), void (*f
             ht->nentries--;
             free(curr);
 
-            pthread_mutex_unlock(&(ht->buckets[hash_val]));
+            pthread_mutex_unlock(&(ht->buckets[hash_val]->lock));
 
             /*ELEMENTO RIMOSSO FINE SEZIONE CRITICA BUCKET*/
             return 0;
@@ -282,7 +278,7 @@ int icl_hash_delete(icl_hash_t *ht, void* key, void (*free_key)(void*), void (*f
         curr = curr->next;
     }
 
-    pthread_mutex_unlock(&(ht->buckets[hash_val]));
+    pthread_mutex_unlock(&(ht->buckets[hash_val]->lock));
 
     /*ELEMENTO NON RIMOSSO FINE SEZIONE CRITICA BUCKET*/
     return -1;
