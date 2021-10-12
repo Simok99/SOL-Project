@@ -53,3 +53,66 @@ config* readConfig(char* pathname){
     
     return conf;
 }
+
+void remSpaces(char **string)
+{
+    //La stringa contiene spazi, la ripulisco
+    int c = 0, i = 0;
+    while (string[i])
+    {
+        if (*string[i] == ' ')
+        {
+            string[c++] = string[i];
+        }
+    }
+    string[c] = '\0';
+}
+
+int writeOnDisk(char *pathname, void *data, const char *dirname, size_t fileSize)
+{
+    if (!pathname)
+    {
+        fprintf(stderr, "Impossibile scrivere su disco: Pathname non valido\n");
+        errno = EINVAL;
+        return -1;
+    }
+    //Controllo che la cartella esista
+    char *tmp_dirname = realpath(dirname, NULL); //Prendo path assoluto, se esiste
+    if (!tmp_dirname)
+    {
+        DIR *dir = opendir(dirname);
+        if (dir == NULL)
+        {
+            //Cartella non esiste, la creo
+            if (mkdir(dirname, 0777) != 0)
+            {
+                fprintf(stderr, "Impossibile scrivere su disco: Impossibile creare la cartella %s\n", dirname);
+                return -1;
+            }
+            tmp_dirname = realpath(dirname, NULL);
+        }
+    }
+    FILE *stream = NULL;
+    strcat(tmp_dirname, "/");
+    char *fileName = basename(pathname); //Prende il nome del file da pathname
+    if ((stream = fopen(strcat(tmp_dirname, fileName), "wb")) == NULL)
+    {
+        fprintf(stderr, "Impossibile scrivere su disco: Errore nell'apertura del file\n");
+        free(tmp_dirname);
+        return -1;
+    }
+    int err;
+    if (fwrite(data, sizeof(char), fileSize, stream) < 0)
+    {
+        SYSCALL_RETURN("fclose", err, fclose(stream), "Impossibile scrivere su disco: Impossibile chiudere il file\n", "");
+        return -1;
+    }
+    if (fclose(stream) != 0)
+    {
+        fprintf(stderr, "Impossibile scrivere su disco: Errore nella chiusura del file\n");
+        free(tmp_dirname);
+        return -1;
+    }
+    free(tmp_dirname);
+    return 0;
+}
