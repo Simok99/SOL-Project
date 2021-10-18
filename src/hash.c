@@ -63,7 +63,7 @@ int string_compare(void* a, void* b)
  */
 
 icl_hash_t *
-icl_hash_create( int nbuckets, unsigned int (*hash_function)(void*), int (*hash_key_compare)(void*, void*) )
+icl_hash_create( int nbuckets, unsigned int (*hash_function)(void*), int (*hash_key_compare)(void*, void*), long maxMemory )
 {
     icl_hash_t *ht;
     int i;
@@ -71,16 +71,20 @@ icl_hash_create( int nbuckets, unsigned int (*hash_function)(void*), int (*hash_
     ht = (icl_hash_t*) malloc(sizeof(icl_hash_t));
     if(!ht) return NULL;
 
-    ht->nentries = 0;
     ht->buckets = (icl_entry_t**)malloc(nbuckets * sizeof(icl_entry_t*));
     if(!ht->buckets) return NULL;
 
     ht->nbuckets = nbuckets;
-    for(i=0;i<ht->nbuckets;i++)
+    for(i=0;i<ht->nbuckets;i++){
         ht->buckets[i] = NULL;
-
+    }
+    
     ht->hash_function = hash_function ? hash_function : hash_pjw;
     ht->hash_key_compare = hash_key_compare ? hash_key_compare : string_compare;
+
+    ht->nentries = 0;
+    ht->currentMemory = 0;
+    ht->maxMemory = maxMemory;
 
     return ht;
 }
@@ -135,7 +139,7 @@ icl_hash_find(icl_hash_t *ht, void* key)
  */
 
 icl_entry_t *
-icl_hash_insert(icl_hash_t *ht, void* key, void *data)
+icl_hash_insert(icl_hash_t *ht, void* key, void *data, long fileSize)
 {
     icl_entry_t *curr;
     unsigned int hash_val;
@@ -149,12 +153,19 @@ icl_hash_insert(icl_hash_t *ht, void* key, void *data)
             return(NULL); /* key already exists */
 
     /* if key was not found */
+
+    //Controllo ci sia spazio per il nuovo file
+    if (ht->currentMemory + fileSize > ht->maxMemory)
+    {
+        //Spazio non sufficiente
+        return NULL;
+    }
+    
     curr = (icl_entry_t*)malloc(sizeof(icl_entry_t));
     if(!curr) return NULL;
 
     curr->key = key;
     curr->data = data;
-
     //Inizializzo una lock per la nuova entry
     pthread_mutex_init(&(curr->lock), NULL);
 
@@ -164,6 +175,7 @@ icl_hash_insert(icl_hash_t *ht, void* key, void *data)
 
     curr->next = ht->buckets[hash_val]; /* add at start */
     ht->buckets[hash_val] = curr;
+    ht->currentMemory += fileSize;
     ht->nentries++;
 
     pthread_mutex_unlock(&(curr->lock));
@@ -184,7 +196,7 @@ icl_hash_insert(icl_hash_t *ht, void* key, void *data)
  */
 
 icl_entry_t *
-icl_hash_update_insert(icl_hash_t *ht, void* key, void *data, void **olddata)
+icl_hash_update_insert(icl_hash_t *ht, void* key, void *data, void **olddata, long fileSize)
 {
     icl_entry_t *curr, *prev;
     unsigned int hash_val;
@@ -213,6 +225,13 @@ icl_hash_update_insert(icl_hash_t *ht, void* key, void *data, void **olddata)
         }
 
     /* Since key was either not found, or found-and-removed, create and prepend new node */
+
+    //Controllo ci sia spazio per il nuovo file
+    if (ht->currentMemory + fileSize > ht->maxMemory)
+    {
+        //Spazio non sufficiente
+        return NULL;
+    }
     curr = (icl_entry_t*)malloc(sizeof(icl_entry_t));
     if(curr == NULL) return NULL; /* out of memory */
 
@@ -221,6 +240,8 @@ icl_hash_update_insert(icl_hash_t *ht, void* key, void *data, void **olddata)
     curr->next = ht->buckets[hash_val]; /* add at start */
 
     ht->buckets[hash_val] = curr;
+    ht->currentMemory -= fileSize;
+    ht->currentMemory += fileSize;
     ht->nentries++;
 
     pthread_mutex_unlock(&(ht->buckets[hash_val]->lock));
@@ -265,9 +286,14 @@ int icl_hash_delete(icl_hash_t *ht, void* key, void (*free_key)(void*), void (*f
                 prev->next = curr->next;
             }
             if (*free_key && curr->key) (*free_key)(curr->key);
-            if (*free_data && curr->data) (*free_data)(curr->data);
-            ht->nentries--;
-            free(curr);
+            if (*free_data && curr->data)
+            {
+                size_t oldSize = strlen((char *)curr->data);
+                ht->currentMemory -= (long)oldSize;
+                (*free_data)(curr->data);
+                ht->nentries--;
+                free(curr);
+            }
 
             pthread_mutex_unlock(&(ht->buckets[hash_val]->lock));
 

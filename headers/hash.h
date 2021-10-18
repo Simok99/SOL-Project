@@ -28,20 +28,22 @@ typedef struct icl_entry_s {
 typedef struct icl_hash_s {
     int nbuckets;
     int nentries;
+    long currentMemory;
+    long maxMemory;
     icl_entry_t **buckets;
     unsigned int (*hash_function)(void*);
     int (*hash_key_compare)(void*, void*);
 } icl_hash_t;
 
 icl_hash_t *
-icl_hash_create( int nbuckets, unsigned int (*hash_function)(void*), int (*hash_key_compare)(void*, void*) );
+icl_hash_create( int nbuckets, unsigned int (*hash_function)(void*), int (*hash_key_compare)(void*, void*), long maxMemory );
 
 void
 * icl_hash_find(icl_hash_t *, void* );
 
 icl_entry_t
-* icl_hash_insert(icl_hash_t *, void*, void *),
-    * icl_hash_update_insert(icl_hash_t *, void*, void *, void **);
+* icl_hash_insert(icl_hash_t *, void*, void *, long fileSize),
+    * icl_hash_update_insert(icl_hash_t *, void*, void *, void **, long fileSize);
 
 int
 icl_hash_destroy(icl_hash_t *, void (*)(void*), void (*)(void*)),

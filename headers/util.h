@@ -35,6 +35,11 @@
 #define MAX_PATH_LENGTH 256
 #endif
 
+//Imposta la cartella di default in cui salvare i file espulsi (lato client)
+#if !defined(EXPELLED_FILES_FOLDER)
+#define EXPELLED_FILES_FOLDER "./~expelledFiles/"
+#endif
+
 #if !defined(MAXBACKLOG)
 #define MAXBACKLOG 32
 #endif
@@ -62,7 +67,6 @@ enum OP_CODE{
     CLOSEFILE = 7,
     REMOVEFILE = 8,
     CLOSECONNECTION = 9,
-    MWFILE = 10
 };
 
 //Struttura dati contenente i dati di configurazione
@@ -85,7 +89,7 @@ typedef struct msg{
 config * readConfig(char* pathname);
 
 //Metodo utilizzato per rimuovere spazi da una stringa
-void remSpaces(char **string);
+char* remSpaces(char *string);
 
 /*Scrive il contenuto di un file sul disco. Se dirname non esiste, verrà creata.
 Ritorna 0 in caso di successo, -1 in caso di errore.*/

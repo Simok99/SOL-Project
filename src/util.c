@@ -6,46 +6,65 @@ config* readConfig(char* pathname){
     char *buffer;
 
     if((f = fopen(pathname, "r")) == NULL){
-        //fprintf(stderr, "Errore nell'apertura del file configurazione");
+        fprintf(stderr, "Errore nell'apertura del file configurazione");
         return NULL;
     }
 
-    if((conf = malloc(sizeof(conf))) == NULL){
-        fprintf(stderr, "Errore fatale malloc\n");
-        return NULL;
-    }
-
-    if ((buffer = malloc(sizeof(char)*256)) == NULL){
-        fprintf(stderr, "Errore fatale malloc\n");
-        return NULL;
-    }
-    
-    //Legge il file di configurazione riga per riga
-    while (fgets(buffer, 256, f) != NULL)
+    conf = malloc(sizeof(config));
+    if (conf == NULL)
     {
+        fprintf(stderr, "Errore fatale malloc\n");
+        return NULL;
+    }
+
+    memset(conf->logPath, '\0', sizeof(conf->logPath));
+    memset(conf->socketPath, '\0', sizeof(conf->socketPath));
+
+    buffer = malloc(sizeof(char) * 1024);
+    if (buffer == NULL)
+    {
+        fprintf(stderr, "Errore fatale malloc\n");
+        return NULL;
+    }
+
+    //Legge il file di configurazione riga per riga
+    while (fgets(buffer, 1024, f) != NULL)
+    {
+        if (strstr(buffer, "**"))
+        {
+            //E' un commento, lo ignoro
+            continue;
+        }
+
         char* separator = "=";
-        char* token = strtok(buffer, separator);
+        char* param = strtok(buffer, separator);
+        char* value = strtok(NULL, "\r\t\n");
+        param = remSpaces(param);
+        value = remSpaces(value);
 
-        if(strstr(token, "numberOfFiles") != NULL){
-            conf->numFiles = atoi(strtok(NULL, separator));
+        if(strcmp(param, "numberOfFiles") == 0){
+            conf->numFiles = atoi(value);
+            continue;
         }
 
-        if (strstr(token, "memoryAllocated") != NULL){
-            conf->memorySpace = atol(strtok(NULL, separator));
+        if (strcmp(param, "memoryAllocated") == 0){
+            conf->memorySpace = atol(value);
+            continue;
         }
 
-        if (strstr(token, "numberOfThreads") != NULL){
-            conf->numWorkers = atoi(strtok(NULL, separator));
+        if (strcmp(param, "numberOfThreads") == 0){
+            conf->numWorkers = atoi(value);
+            continue;
         }
 
-        if (strstr(token, "socketPath") != NULL){
-            remSpaces(&token);
-            strcpy(conf->socketPath, strtok(NULL, "\r\n"));
+        if (strcmp(param, "socketPath") == 0){
+            strcpy(conf->socketPath, value);
+            continue;
         }
 
-        if (strstr(token, "logPath") != NULL){
-            remSpaces(&token);
-            strcpy(conf->logPath, strtok(NULL, "\r\n"));
+        if (strcmp(param, "logPath") == 0){
+            strcpy(conf->logPath, value);
+            continue;
         }
     }
     fclose(f);
@@ -54,18 +73,20 @@ config* readConfig(char* pathname){
     return conf;
 }
 
-void remSpaces(char **string)
+char* remSpaces(char *string)
 {
     //La stringa contiene spazi, la ripulisco
-    int c = 0, i = 0;
+    int i = 0, j = 0;
     while (string[i])
     {
-        if (*string[i] == ' ')
+        if (string[i] != ' ')
         {
-            string[c++] = string[i];
+            string[j++] = string[i];
         }
+        i++;
     }
-    string[c] = '\0';
+    string[j] = '\0';
+    return string;
 }
 
 int writeOnDisk(char *pathname, void *data, const char *dirname, size_t fileSize)
@@ -97,19 +118,19 @@ int writeOnDisk(char *pathname, void *data, const char *dirname, size_t fileSize
     char *fileName = basename(pathname); //Prende il nome del file da pathname
     if ((stream = fopen(strcat(tmp_dirname, fileName), "wb")) == NULL)
     {
-        fprintf(stderr, "Impossibile scrivere su disco: Errore nell'apertura del file\n");
+        fprintf(stderr, "Impossibile scrivere su disco: Errore nell'apertura del file %s\n", pathname);
         free(tmp_dirname);
         return -1;
     }
     int err;
     if (fwrite(data, sizeof(char), fileSize, stream) < 0)
     {
-        SYSCALL_RETURN("fclose", err, fclose(stream), "Impossibile scrivere su disco: Impossibile chiudere il file\n", "");
+        SYSCALL_RETURN("fclose", err, fclose(stream), "Impossibile scrivere su disco: Impossibile chiudere il file %s\n", pathname);
         return -1;
     }
     if (fclose(stream) != 0)
     {
-        fprintf(stderr, "Impossibile scrivere su disco: Errore nella chiusura del file\n");
+        fprintf(stderr, "Impossibile scrivere su disco: Errore nella chiusura del file %s\n", pathname);
         free(tmp_dirname);
         return -1;
     }

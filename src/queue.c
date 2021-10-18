@@ -9,8 +9,28 @@ queue* createQueue(){
     return q;
 }
 
-void insertQueue(queue* queue, unsigned int opCode, void* data){
-    node* newNode = malloc(sizeof(node));
+int queueLength(queue* queue){
+    if (!queue)
+    {
+        return 0;
+    }
+    
+    if (queue->head == queue->tail)
+    {
+        return 1;
+    }
+
+    int n = 0;
+    while (queue->head != queue->tail)
+    {
+        n++;
+        queue->head = queue->head->next;
+    }
+    return n;
+}
+
+void insertQueue(queue* queue, char* id, unsigned int opCode, void* data){
+    node* newNode = malloc(sizeof(struct node));
     if (!newNode)
     {
         fprintf(stderr, "Errore fatale malloc\n");
@@ -18,6 +38,7 @@ void insertQueue(queue* queue, unsigned int opCode, void* data){
     }
     
     newNode->opCode = opCode;
+    newNode->id = id;
     newNode->data = data;
     newNode->next = NULL;
 
@@ -60,21 +81,15 @@ void deQueue(queue* queue){
 }
 
 void deleteQueue(queue* queue){
-    //Se coda vuota
-    if (queue == NULL)
-    {
-        return;
-    }
-    
     while (queue->head != queue->tail)
     {
-        node* toFree = queue->head;
+        node* toFree = queue->head->data;
         queue->head = queue->head->next;
         free(toFree);
     }
 
     //Ultimo elemento rimasto
-    free(queue->head);
+    if(queue->head) free(queue->head);
 
     free(queue);
     
