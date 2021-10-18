@@ -1,0 +1,7 @@
+**Per numeri di default utilizzare 0, per path personalizzati rimuovere gli asterischi (Una opzione per riga)
+**Parametri validi: numberOfFiles, memoryAllocated, numberOfThreads, socketPath, logPath
+numberOfFiles=0
+memoryAllocated=0
+numberOfThreads=0
+**socketPath=./mysocketpath/socket
+**logPath=./mylogpath/log.txt
