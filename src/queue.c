@@ -9,22 +9,28 @@ queue* createQueue(){
     return q;
 }
 
-int queueLength(queue* queue){
-    if (!queue)
+int queueLength(queue* queuep){
+    queue* temp = queuep;
+    if (!queuep)
     {
         return 0;
     }
     
-    if (queue->head == queue->tail)
+    if (queuep->head == NULL)
+    {
+        return 0;
+    }
+
+    if (queuep->head == queuep->tail)
     {
         return 1;
     }
 
     int n = 0;
-    while (queue->head != queue->tail)
+    while (temp->head != temp->tail)
     {
         n++;
-        queue->head = queue->head->next;
+        temp->head = temp->head->next;
     }
     return n;
 }
@@ -68,6 +74,24 @@ node* popQueue(queue* queue){
     return oldHead;
 }
 
+node* searchInQueue(queue* queuep, char* id){
+    // Se coda vuota
+    if (queuep == NULL)
+    {
+        return NULL;
+    }
+    queue* tmp = queuep;
+    while (tmp->head != tmp->tail)
+    {
+        if (strcmp(tmp->head->id, id) == 0)
+        {
+            return tmp->head;
+        }
+        tmp->head = tmp->head->next;
+    }
+    return NULL;
+}
+
 void deQueue(queue* queue){
     //Se coda vuota
     if (queue == NULL)
@@ -78,6 +102,33 @@ void deQueue(queue* queue){
     node* oldHead = queue->head;
     queue->head = oldHead->next;
     free(oldHead);
+}
+
+void removeFromQueue(queue* queuep, char* id){
+    node* prev = NULL;
+    node* curr = queuep->head;
+
+    if (curr != NULL && strcmp(curr->id, id) == 0)
+    {
+        queuep->head = curr->next;
+        free(curr);
+        return;
+    }
+
+    while (curr != NULL && strcmp(curr->id, id) == 0)
+    {
+        prev = curr;
+        curr = curr->next;
+    }
+
+    if (curr == NULL)
+    {
+        //Elemento non trovato
+        return;
+    }
+
+    prev->next = curr->next;
+    free(curr);
 }
 
 void deleteQueue(queue* queue){

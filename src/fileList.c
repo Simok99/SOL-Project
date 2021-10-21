@@ -3,6 +3,11 @@
 /* IMPLEMENTAZIONE METODI FILELIST.H */
 
 int insertFile(fileList **list, char *path, long descriptor){
+    if (containsFile(*list, path, descriptor) == 0)
+    {
+        return -1;
+    }
+    
     fileList* new = malloc(sizeof(fileList));
     if (new == NULL)
     {
@@ -12,6 +17,7 @@ int insertFile(fileList **list, char *path, long descriptor){
     strncpy(new->path, path, MAX_PATH_LENGTH);
     new->fd = descriptor;
     new->size = 0;
+    new->isLocked = false;
     new->next = *list;
     *list = new;
     return -1;
@@ -58,6 +64,21 @@ int deleteFile(fileList **list, char *path, long descriptor){
     return -1;
 }
 
+int lengthList(fileList* list){
+    fileList* head = list;
+    if (!head)
+    {
+        return 0;
+    }
+    int n = 0;
+    while (head != NULL)
+    {
+        n++;
+        head = head->next;
+    }
+    return n;
+}
+
 char *getLastFile(fileList *list){
     fileList *curr = list;
     fileList *next = curr->next;
@@ -70,6 +91,34 @@ char *getLastFile(fileList *list){
         return curr->path;
     else
         return NULL;
+}
+
+char** getLockedFiles(fileList* list, long fdSocket, int* length){
+    int n = 0;
+    char** files = NULL;
+    fileList* head = list;
+    while (head != NULL)
+    {
+        if (head->fd == fdSocket)
+        {
+            n++;
+        }
+        head = head->next;
+    }
+    files = malloc(sizeof(char*)*n);
+    head = list;
+    int i = 0;
+    while (head != NULL)
+    {
+        if (head->fd == fdSocket)
+        {
+            files[i] = strdup((char*)head->path);
+            i++;
+        }
+        head = head->next;
+    }
+    *length = n;
+    return files;
 }
 
 int deleteLastFile(fileList **list){
@@ -111,4 +160,47 @@ void destroyFileList(fileList **list){
         curr = next;
     }
     *list = NULL;
+}
+
+bool isLocked(fileList *list, char *path){
+    fileList *head = list;
+    while (head != NULL)
+    {
+        if (head->path != NULL)
+            if ((strcmp(head->path, path) == 0)){
+                // File trovato, controllo la lock
+                if(head->isLocked) return true;
+                else return false;
+            }
+        head = head->next;
+    }
+    return false;
+}
+
+void lockFile(fileList**list, char* path, long fdSocket){
+    fileList *head = *list;
+    while (head != NULL)
+    {
+        if (head->path != NULL)
+            if ((strncmp((char *)head->path, path, MAX_PATH_LENGTH) == 0)){
+                // File trovato, effettuo la lock
+                head->isLocked = true;
+                head->fd = fdSocket;
+            }
+        head = head->next;
+    }
+}
+
+void unlockFile(fileList **list, char *path, long fdSocket){
+    fileList *head = *list;
+    while (head != NULL)
+    {
+        if (head->path != NULL)
+            if ((strncmp((char *)head->path, path, MAX_PATH_LENGTH) == 0 && head->fd == fdSocket)){
+                // File trovato, effettuo la unlock
+                head->isLocked = false;
+                head->fd = -1;
+            }
+        head = head->next;
+    }
 }
