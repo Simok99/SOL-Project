@@ -20,8 +20,7 @@ extern "C" {
 //Struttura dati che rappresenta un bucket, associo una lock ad ogni bucket
 typedef struct icl_entry_s {
     void* key;
-    void *data;
-    pthread_mutex_t lock;
+    void* data;
     struct icl_entry_s* next;
 } icl_entry_t;
 
@@ -31,6 +30,8 @@ typedef struct icl_hash_s {
     long currentMemory;
     long maxMemory;
     icl_entry_t **buckets;
+    pthread_mutex_t *locks;
+    int nlocks;
     unsigned int (*hash_function)(void*);
     int (*hash_key_compare)(void*, void*);
 } icl_hash_t;

@@ -74,11 +74,21 @@ icl_hash_create( int nbuckets, unsigned int (*hash_function)(void*), int (*hash_
     ht->buckets = (icl_entry_t**)malloc(nbuckets * sizeof(icl_entry_t*));
     if(!ht->buckets) return NULL;
 
+    ht->locks = (pthread_mutex_t*)malloc(nbuckets * sizeof(pthread_mutex_t));
+    if(!ht->buckets) return NULL;
+
     ht->nbuckets = nbuckets;
+    ht->nlocks = nbuckets;
     for(i=0;i<ht->nbuckets;i++){
         ht->buckets[i] = NULL;
     }
-    
+    for (i = 0; i < ht->nlocks; i++)
+    {
+        pthread_mutex_t newLock = PTHREAD_MUTEX_INITIALIZER;
+        ht->locks[i] = newLock;
+        pthread_mutex_init(&(ht->locks[i]), NULL);
+    }
+
     ht->hash_function = hash_function ? hash_function : hash_pjw;
     ht->hash_key_compare = hash_key_compare ? hash_key_compare : string_compare;
 
@@ -108,21 +118,21 @@ icl_hash_find(icl_hash_t *ht, void* key)
     if(!ht || !key) return NULL;
 
     hash_val = (* ht->hash_function)(key) % ht->nbuckets;
-
+    
     /*INIZIO SEZIONE CRITICA BUCKET*/
 
-    pthread_mutex_lock(&(ht->buckets[hash_val]->lock));
+    pthread_mutex_lock(&(ht->locks[hash_val]));
 
     for (curr=ht->buckets[hash_val]; curr != NULL; curr=curr->next){
         if ( ht->hash_key_compare(curr->key, key))
         {
-            pthread_mutex_unlock(&(ht->buckets[hash_val]->lock));
+            pthread_mutex_unlock(&(ht->locks[hash_val]));
 
             /*ELEMENTO TROVATO FINE SEZIONE CRITICA BUCKET*/
             return(curr->data);
         }
     }
-    pthread_mutex_unlock(&(ht->buckets[hash_val]->lock));
+    pthread_mutex_unlock(&(ht->locks[hash_val]));
 
     /*ELEMENTO NON TROVATO FINE SEZIONE CRITICA BUCKET*/
     return NULL;
@@ -166,19 +176,18 @@ icl_hash_insert(icl_hash_t *ht, void* key, void *data, long fileSize)
 
     curr->key = key;
     curr->data = data;
-    //Inizializzo una lock per la nuova entry
-    pthread_mutex_init(&(curr->lock), NULL);
+    printf("ADDED KEY:%s WITH DATA:%s\n",(char*)curr->key,(char*)curr->data);
 
     /*INIZIO SEZIONE CRITICA BUCKET*/
 
-    pthread_mutex_lock(&(curr->lock));
+    pthread_mutex_lock(&(ht->locks[hash_val]));
 
     curr->next = ht->buckets[hash_val]; /* add at start */
     ht->buckets[hash_val] = curr;
     ht->currentMemory += fileSize;
     ht->nentries++;
 
-    pthread_mutex_unlock(&(curr->lock));
+    pthread_mutex_unlock(&(ht->locks[hash_val]));
 
     /*FINE SEZIONE CRITICA BUCKET*/
     return curr;
@@ -207,12 +216,14 @@ icl_hash_update_insert(icl_hash_t *ht, void* key, void *data, void **olddata, lo
 
     /*INIZIO SEZIONE CRITICA BUCKET*/
 
-    pthread_mutex_lock(&(ht->buckets[hash_val]->lock));
+    pthread_mutex_lock(&(ht->locks[hash_val]));
 
     /* Scan bucket[hash_val] for key */
-    for (prev=NULL,curr=ht->buckets[hash_val]; curr != NULL; prev=curr, curr=curr->next)
+    for (prev=NULL,curr=ht->buckets[hash_val]; curr != NULL; prev=curr, curr=curr->next){
         /* If key found, remove node from list, free old key, and setup olddata for the return */
-        if ( ht->hash_key_compare(curr->key, key)) {
+        //printf("HASHKEY:%s\nKEY:%s\n",(char*)(curr->key), (char*)(key));
+        if (ht->hash_key_compare(curr->key, key))
+        {
             if (olddata != NULL) {
                 *olddata = curr->data;
                 free(curr->key);
@@ -223,7 +234,7 @@ icl_hash_update_insert(icl_hash_t *ht, void* key, void *data, void **olddata, lo
             else
                 prev->next = curr->next;
         }
-
+    }
     /* Since key was either not found, or found-and-removed, create and prepend new node */
 
     //Controllo ci sia spazio per il nuovo file
@@ -244,7 +255,7 @@ icl_hash_update_insert(icl_hash_t *ht, void* key, void *data, void **olddata, lo
     ht->currentMemory += fileSize;
     ht->nentries++;
 
-    pthread_mutex_unlock(&(ht->buckets[hash_val]->lock));
+    pthread_mutex_unlock(&(ht->locks[hash_val]));
 
     /*FINE SEZIONE CRITICA BUCKET*/
 
@@ -276,7 +287,7 @@ int icl_hash_delete(icl_hash_t *ht, void* key, void (*free_key)(void*), void (*f
 
     /*INIZIO SEZIONE CRITICA BUCKET*/
 
-    pthread_mutex_lock(&(ht->buckets[hash_val]->lock));
+    pthread_mutex_lock(&(ht->locks[hash_val]));
 
     for (curr=ht->buckets[hash_val]; curr != NULL; )  {
         if ( ht->hash_key_compare(curr->key, key)) {
@@ -295,7 +306,7 @@ int icl_hash_delete(icl_hash_t *ht, void* key, void (*free_key)(void*), void (*f
                 free(curr);
             }
 
-            pthread_mutex_unlock(&(ht->buckets[hash_val]->lock));
+            pthread_mutex_unlock(&(ht->locks[hash_val]));
 
             /*ELEMENTO RIMOSSO FINE SEZIONE CRITICA BUCKET*/
             return 0;
@@ -304,7 +315,7 @@ int icl_hash_delete(icl_hash_t *ht, void* key, void (*free_key)(void*), void (*f
         curr = curr->next;
     }
 
-    pthread_mutex_unlock(&(ht->buckets[hash_val]->lock));
+    pthread_mutex_unlock(&(ht->locks[hash_val]));
 
     /*ELEMENTO NON RIMOSSO FINE SEZIONE CRITICA BUCKET*/
     return -1;
@@ -337,6 +348,13 @@ icl_hash_destroy(icl_hash_t *ht, void (*free_key)(void*), void (*free_data)(void
             curr=next;
         }
     }
+
+    for (i = 0; i < ht->nlocks; i++)
+    {
+        pthread_mutex_destroy(&(ht->locks[i]));
+    }
+    free(ht->locks);
+    
 
     if(ht->buckets) free(ht->buckets);
     if(ht) free(ht);
