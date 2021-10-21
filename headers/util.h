@@ -80,8 +80,8 @@ typedef struct config{
 
 //Struttura dati che rappresenta un messaggio inviato dal client al server o viceversa
 typedef struct msg{
-    void* command;  //Utilizzato dal client, contiene il comando inviato
-    void* data;     //Contiene dati generici
+    char command[1024];  //Utilizzato dal client, contiene il comando inviato
+    char data[MAX_FILE_SIZE];     //Contiene dati generici
     size_t size;    //La dimensione associata a data
 } msg;
 
