@@ -139,6 +139,8 @@ void sendRequest(){
                 if (openFile(filePath, O_CREATE_OR_O_LOCK) != 0)
                 {
                     fprintf(stderr, "Impossibile scrivere il file %s, non e' stato aperto dal server\n", filePath);
+                    free(newFile->id);
+                    free(newFile->data);
                     free(newFile);
                     break;
                 }
@@ -148,12 +150,14 @@ void sendRequest(){
                     if (writeFile(filePath, NULL) != 0)
                     {
                         fprintf(stderr, "Impossibile scrivere il file %s, errore in scrittura\n", filePath);
+                        free(newFile->id);
+                        free(newFile->data);
                         free(newFile);
                         break;
                     }
                     //File caricato correttamente
                     if (pFlag)
-                        printf("File %s caricato correttamente\n", filePath);
+                        printf("File %s caricato correttamente e lock acquisita\n", filePath);
                 }
                 else
                 {
@@ -161,12 +165,14 @@ void sendRequest(){
                     if (writeFile(filePath, D_Dirname) != 0)
                     {
                         fprintf(stderr, "Impossibile inviare il file %s sul server, errore in scrittura\n", filePath);
+                        free(newFile->id);
+                        free(newFile->data);
                         free(newFile);
                         break;
                     }
                     //File caricato correttamente
                     if (pFlag)
-                        printf("File %s caricato correttamente\n", filePath);
+                        printf("File %s caricato correttamente e lock acquisita\n", filePath);
                 }
                 free(newFile->id);
                 free(newFile->data);
@@ -194,7 +200,7 @@ void sendRequest(){
                 }
                 //File caricato correttamente
                 if (pFlag)
-                    printf("File %s caricato correttamente\n", path);
+                    printf("File %s caricato correttamente e lock acquisita\n", path);
             }
             else
             {
@@ -206,7 +212,7 @@ void sendRequest(){
                 }
                 //File caricato correttamente
                 if (pFlag)
-                    printf("File %s caricato correttamente\n", path);
+                    printf("File %s caricato correttamente e lock acquisita\n", path);
             }
         }
         break;
@@ -222,12 +228,6 @@ void sendRequest(){
             }
 
             //File aperto, leggo il contenuto
-            response.data = malloc(sizeof(char)*MAX_FILE_SIZE);
-            if (response.data == NULL)
-            {
-                fprintf(stderr, "Errore fatale malloc\n");
-                break;
-            }
 
             if (readFile(path, (void**)&response.data, &response.size) == 0)
             {
@@ -265,11 +265,41 @@ void sendRequest(){
         break;
 
     case 'l':
-        /* code */
+        {
+            char *path = (char *)requestNode->data;
+            if (lockFile(path) == 0)
+            {
+                if (pFlag)
+                {
+                    printf("Ottenuta la lock sul file %s\n", path);
+                }
+            }
+            else{
+                if (pFlag)
+                {
+                    printf("Errore nell'ottenimento della lock per il file %s\n", path);
+                }
+            }
+        }
         break;
 
     case 'u':
-        /* code */
+        {
+            char *path = (char *)requestNode->data;
+            if (unlockFile(path) == 0)
+            {
+                if (pFlag)
+                {
+                    printf("Lock sul file %s rilasciata\n", path);
+                }
+            }
+            else{
+                if (pFlag)
+                {
+                    printf("Errore nel rilascio della lock per il file %s\n", path);
+                }
+            }
+        }
         break;
 
     case 'c':
