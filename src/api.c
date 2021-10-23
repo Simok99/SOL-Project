@@ -129,41 +129,63 @@ int openFile(const char *pathname, int flags){
         return -1;
     }
 
-    //Se non ci sono file espulsi la risposta del server sara' 0
+    //Se non ci sono file espulsi la risposta del server non avra' command
+    char* command = strdup(response.command);
     char* data = strdup(response.data);
-    if (strcmp(data, "-1") == 0)
+
+    if (strcmp(command, " ") == 0)
     {
-        fprintf(stderr, "Errore nella scrittura del file %s\n", pathname);
-        free(data);
-        return -1;
-    }
-    else if (strcmp(data, "0") == 0)
-    {
-        free(data);
-        return 0;
+        if (strcmp(data, "-1") == 0)
+        {
+            fprintf(stderr, "Errore nella scrittura del file %s (errore server)\n", pathname);
+            free(command);
+            free(data);
+            return -1;
+        }
+        else if (strcmp(data, "ALREADYINSTORAGE") == 0)
+        {
+            fprintf(stderr, "Errore nella scrittura del file %s (file presente nello storage)\n", pathname);
+            free(command);
+            free(data);
+            return -1;
+        }
+        else if (strcmp(data, "NOTFOUND") == 0)
+        {
+            fprintf(stderr, "Errore in apertura del file %s (file non trovato)\n", pathname);
+            free(command);
+            free(data);
+            return -1;
+        }
+        else if (strcmp(data, "0") == 0)
+        {
+            free(command);
+            free(data);
+            return 0;
+        }
     }
     else{
         //Ho ricevuto file espulsi indietro
-        char *fileName = strdup(response.command);
-        if (writeOnDisk(fileName, response.data, expelledDir, response.size) != 0)
+        if (writeOnDisk(command, (char*)data, expelledDir, response.size) != 0)
         {
-            fprintf(stderr, "Impossibile salvare il file %s inviato dal server nella cartella %s\n", fileName, expelledDir);
+            fprintf(stderr, "Impossibile salvare il file %s inviato dal server nella cartella %s\n", command, expelledDir);
         }
-        printf("File %s espulso dal server salvato nella cartella %s\n", fileName, expelledDir);
-        while (readn(fdSocket, &(response), sizeof(response)) != 0)
+        printf("File %s espulso dal server salvato nella cartella %s\n", command, expelledDir);
+        while (readn(fdSocket, (void*)&response, sizeof(msg)) != 0)
         {
-            fileName = realloc(fileName, strlen((char*)response.command));
-            strcpy(fileName, (char*)response.command);
-            if (writeOnDisk(fileName, response.data, expelledDir, response.size) != 0)
+            command = realloc(command, strlen((char*)response.command));
+            strcpy(command, (char*)response.command);
+            if (writeOnDisk(command, (char *)data, expelledDir, response.size) != 0)
             {
-                fprintf(stderr, "Impossibile salvare il file %s inviato dal server nella cartella %s\n", fileName, expelledDir);
+                fprintf(stderr, "Impossibile salvare il file %s inviato dal server nella cartella %s\n", command, expelledDir);
                 continue;
             }
-            printf("File %s espulso dal server salvato nella cartella %s\n", fileName, expelledDir);
+            printf("File %s espulso dal server salvato nella cartella %s\n", command, expelledDir);
         }
-        free(fileName);
+        free(command);
+        free(data);
         return 0;
     }
+    free(command);
     free(data);
     return -1;
 }
@@ -291,7 +313,11 @@ int writeFile(const char *pathname, const char *dirname){
     char* command = strdup(response.command);
     if (strcmp(data, "") == 0)
     {
-        if (strcmp(command, "FAILED") == 0)
+        if (strcmp(command, "TOOBIG") == 0)
+        {
+            fprintf(stderr, "File %s troppo grande per il server (modificabile da util.h)\n", pathname);
+        }
+        else if (strcmp(command, "FAILED") == 0)
         {
             fprintf(stderr, "File %s rimosso dal server (impossibile ripristinare un backup)\n", pathname);
         }
@@ -319,6 +345,7 @@ int writeFile(const char *pathname, const char *dirname){
 
 int appendToFile(const char *pathname, void *buf, size_t size, const char *dirname){
     //TODO Implement
+    return -1;
 }
 
 int lockFile(const char *pathname){
@@ -359,9 +386,15 @@ int lockFile(const char *pathname){
     }
 
     char *data = strdup(response.data);
-    if (strcmp(data, "-1") == 0)
+    if (strcmp(data, "NOTFOUND") == 0)
     {
         fprintf(stderr, "File %s non trovato nel server\n", pathname);
+        free(data);
+        return -1;
+    }
+    else if (strcmp(data, "ALREADYLOCKED") == 0)
+    {
+        fprintf(stderr, "Il file %s e' gia' locked\n", pathname);
         free(data);
         return -1;
     }
@@ -371,6 +404,7 @@ int lockFile(const char *pathname){
         return 0;
     }
     //Errore
+    free(data);
     return -1;
 }
 
@@ -414,7 +448,7 @@ int unlockFile(const char *pathname){
     char *data = strdup(response.data);
     if (strcmp(data, "-1") == 0)
     {
-        fprintf(stderr, "File %s non trovato nel server\n", pathname);
+        fprintf(stderr, "File %s non trovato nel server, o non hai la lock sul file da rilasciare\n", pathname);
         free(data);
         return -1;
     }
@@ -424,6 +458,7 @@ int unlockFile(const char *pathname){
         return 0;
     }
     // Errore
+    free(data);
     return -1;
 }
 
@@ -473,5 +508,45 @@ int closeFile(const char *pathname){
 }
 
 int removeFile(const char *pathname){
-    //TODO Implement
+    if (pathname == NULL)
+    {
+        fprintf(stderr, "Errore: pathname non valido\n");
+        errno = EINVAL;
+        return -1;
+    }
+
+    char **params = malloc(sizeof(char *) * 3);
+    for (int i = 0; i < 3; i++)
+    {
+        params[i] = malloc(sizeof(char) * 1024);
+    }
+
+    snprintf(params[0], sizeof(long), "%ld", fdSocket);
+    snprintf(params[1], sizeof(char) * 1024, "%d %s", REMOVEFILE, pathname);
+    snprintf(params[2], sizeof(int), "%d", NOFLAGS);
+
+    msg request = buildRequest(params, "");
+    if (writen(fdSocket, (void *)&request, sizeof(msg)) != 1)
+    {
+        fprintf(stderr, "Errore nell'invio della richiesta al server\n");
+        return -1;
+    }
+    for (int i = 0; i < 3; i++)
+    {
+        free(params[i]);
+    }
+    free(params);
+
+    msg response;
+    if (readn(fdSocket, (void *)&response, sizeof(msg)) == -1)
+    {
+        fprintf(stderr, "Errore nella ricezione della risposta del server\n");
+        return -1;
+    }
+
+    // La risposta del server sara' "0" o "-1"
+    if (strcmp(response.data, "0") == 0)
+        return 0;
+
+    return -1;
 }
