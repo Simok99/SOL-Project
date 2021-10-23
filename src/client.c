@@ -20,10 +20,10 @@ unsigned int sleepTime = 0;     //Tempo che intercorre tra una richiesta e l'alt
 /* Metodo utilizzato per i comandi -W, -r, -l, -u, -c: rimuove la virgola e divide la stringa in N stringhe
     restituite in un array, imposta inoltre il valore corretto del numero di file
 */
-char** tokenArgs(char** args, unsigned int *n){
+char** tokenArgs(char* args, unsigned int *n){
     unsigned int arraySize = 0, index=0;
     char** stringArray = NULL;
-    char* token = strtok(*args, ",");
+    char* token = strtok(args, ",");
     while (token != NULL)
     {
         //Nuovo nome di file
@@ -35,7 +35,7 @@ char** tokenArgs(char** args, unsigned int *n){
             fprintf(stderr, "Errore fatale realloc\n");
             exit(EXIT_FAILURE);
         }
-        stringArray[index] = token;
+        stringArray[index] = strdup(token);
         index++;
         token = strtok(NULL, ",");
     }
@@ -85,17 +85,19 @@ void recursiveFileQueue(char* dirname, queue** fileQueue, int maxfiles){
         if (entry->d_type == DT_DIR)
         {
             //Trovata nuova cartella
+            char path[1024];
             if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
                 continue;
-            char* newpath = malloc(sizeof(char) * 1024);
-            snprintf(newpath, 1024, "%s/%s", dirname, entry->d_name);
-            recursiveFileQueue(newpath, fileQueue, maxfiles);
+            snprintf(path, sizeof(path), "%s/%s", dirname, entry->d_name);
+            printf("FOUND:%s\n",path);
+            recursiveFileQueue(path, fileQueue, maxfiles);
         }
         else
         {
             //Trovato nuovo file, aggiungo alla coda il suo path (opCode e data inutilizzati)
             char* newpath = malloc(sizeof(char) * 1024);
-            snprintf(newpath, 1024, "%s%s", dirname, entry->d_name);
+            snprintf(newpath, 1024, "%s/%s", dirname, entry->d_name);
+            printf("ADDING FILE:%s\n",newpath);
             insertQueue(*fileQueue, newpath, -1, NULL);
             maxfiles--;
         }
@@ -131,18 +133,19 @@ void sendRequest(){
             //Inserisce, visitando ricorsivamente le cartelle, i file all'interno della coda
             recursiveFileQueue(directory, &fileQueue, n);
             
+            int nfiles = queueLength(fileQueue);
             //Invia tutte le richieste tramite l'API, che si occupera' di salvare i file eventualmente scartati
-            for (int i = 0; i < queueLength(fileQueue); i++)
+            for(int i = 0; i < nfiles; i++)
             {
                 node* newFile = popQueue(fileQueue);
+                printf("POPPED:%s\n",newFile->id);
                 char *filePath = newFile->id;
                 if (openFile(filePath, O_CREATE_OR_O_LOCK) != 0)
                 {
                     fprintf(stderr, "Impossibile scrivere il file %s, non e' stato aperto dal server\n", filePath);
                     free(newFile->id);
-                    free(newFile->data);
                     free(newFile);
-                    break;
+                    continue;
                 }
                 if (!DFlag)
                 {
@@ -150,10 +153,6 @@ void sendRequest(){
                     if (writeFile(filePath, NULL) != 0)
                     {
                         fprintf(stderr, "Impossibile scrivere il file %s, errore in scrittura\n", filePath);
-                        free(newFile->id);
-                        free(newFile->data);
-                        free(newFile);
-                        break;
                     }
                     //File caricato correttamente
                     if (pFlag)
@@ -165,17 +164,12 @@ void sendRequest(){
                     if (writeFile(filePath, D_Dirname) != 0)
                     {
                         fprintf(stderr, "Impossibile inviare il file %s sul server, errore in scrittura\n", filePath);
-                        free(newFile->id);
-                        free(newFile->data);
-                        free(newFile);
-                        break;
                     }
                     //File caricato correttamente
                     if (pFlag)
                         printf("File %s caricato correttamente e lock acquisita\n", filePath);
                 }
                 free(newFile->id);
-                free(newFile->data);
                 free(newFile);
             }
             free(fileQueue);
@@ -303,7 +297,22 @@ void sendRequest(){
         break;
 
     case 'c':
-        /* code */
+        {
+            char *path = (char *)requestNode->data;
+            if (removeFile(path) == 0)
+            {
+                if (pFlag)
+                {
+                    printf("File %s eliminato dal server\n", path);
+                }
+            }
+            else{
+                if (pFlag)
+                {
+                    printf("Errore nell'eliminazione del file %s (il file e' presente e possiedi la lock?)\n", path);
+                }
+            }
+        }
         break;
 
     default:
@@ -367,14 +376,14 @@ int main(int argc, char *argv[])
         case 'W':
             {
                 unsigned int numFiles;
-                char* arg = optarg;
-                char** array = tokenArgs(&arg, &numFiles);
+                char** array = tokenArgs(optarg, &numFiles);
                 //Inserisce in coda più operazioni 'W' ciascuna con un nome di file
                 for (int i = 0; i < numFiles; i++)
                 {
                     insertQueue(requestQueue, NULL, 'W', (void*)array[i]);
                 }
                 WFlag=true;
+                free(array);
                 break;
             }
 
@@ -392,14 +401,14 @@ int main(int argc, char *argv[])
         case 'r':
             {
                 unsigned int numFiles;
-                char *arg = optarg;
-                char **array = tokenArgs(&arg, &numFiles);
+                char **array = tokenArgs(optarg, &numFiles);
                 //Inserisce in coda più operazioni 'r' ciascuna con un nome di file
                 for (int i = 0; i < numFiles; i++)
                 {
                     insertQueue(requestQueue, NULL, 'r', (void *)array[i]);
                 }
                 rFlag=true;
+                free(array);
                 break;
             }
 
@@ -446,38 +455,38 @@ int main(int argc, char *argv[])
         case 'l':
             {
                 unsigned int numFiles;
-                char *arg = optarg;
-                char **array = tokenArgs(&arg, &numFiles);
+                char **array = tokenArgs(optarg, &numFiles);
                 //Inserisce in coda più operazioni 'l' ciascuna con un nome di file
                 for (int i = 0; i < numFiles; i++)
                 {
                     insertQueue(requestQueue, NULL, 'l', (void *)array[i]);
                 }
+                free(array);
                 break;
             }
 
         case 'u':
             {
                 unsigned int numFiles;
-                char *arg = optarg;
-                char **array = tokenArgs(&arg, &numFiles);
+                char **array = tokenArgs(optarg, &numFiles);
                 //Inserisce in coda più operazioni 'u' ciascuna con un nome di file
                 for (int i = 0; i < numFiles; i++)
                 {
                     insertQueue(requestQueue, NULL, 'u', (void *)array[i]);
                 }
+                free(array);
                 break;
             }
         case 'c':
             {
                 unsigned int numFiles;
-                char *arg = optarg;
-                char **array = tokenArgs(&arg, &numFiles);
+                char **array = tokenArgs(optarg, &numFiles);
                 //Inserisce in coda più operazioni 'c' ciascuna con un nome di file
                 for (int i = 0; i < numFiles; i++)
                 {
                     insertQueue(requestQueue, NULL, 'c', (void *)array[i]);
                 }
+                free(array);
                 break;
             }
         default:
