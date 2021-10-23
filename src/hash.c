@@ -176,7 +176,6 @@ icl_hash_insert(icl_hash_t *ht, void* key, void *data, long fileSize)
 
     curr->key = key;
     curr->data = data;
-    printf("ADDED KEY:%s WITH DATA:%s\n",(char*)curr->key,(char*)curr->data);
 
     /*INIZIO SEZIONE CRITICA BUCKET*/
 
@@ -227,6 +226,7 @@ icl_hash_update_insert(icl_hash_t *ht, void* key, void *data, void **olddata, lo
             if (olddata != NULL) {
                 *olddata = curr->data;
                 free(curr->key);
+                ht->nentries--;
             }
 
             if (prev == NULL)
@@ -251,7 +251,7 @@ icl_hash_update_insert(icl_hash_t *ht, void* key, void *data, void **olddata, lo
     curr->next = ht->buckets[hash_val]; /* add at start */
 
     ht->buckets[hash_val] = curr;
-    ht->currentMemory -= fileSize;
+    ht->currentMemory -= (long) strlen((char*)data);
     ht->currentMemory += fileSize;
     ht->nentries++;
 
