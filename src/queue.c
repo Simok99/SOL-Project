@@ -26,7 +26,7 @@ int queueLength(queue* queuep){
         return 1;
     }
 
-    int n = 0;
+    int n = 1;
     while (temp->head != temp->tail)
     {
         n++;
@@ -144,4 +144,19 @@ void deleteQueue(queue* queue){
 
     free(queue);
     
+}
+
+void printQueue(queue* queuep){
+    queue* tmp = queuep;
+    while (tmp->head != tmp->tail)
+    {
+        node *newNode = tmp->head;
+        tmp->head = tmp->head->next;
+        printf("NODE:%s\n",newNode->id);
+    }
+
+    // Ultimo elemento rimasto
+    if (tmp->head)
+        printf("NODE:%s\n",tmp->head->id);
+
 }

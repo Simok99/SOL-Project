@@ -46,4 +46,7 @@ void removeFromQueue(queue* queuep, char* id);
 //Cancella una coda in memoria
 void deleteQueue(queue* queue);
 
+//Stampa gli id dei nodi di una coda
+void printQueue(queue *queuep);
+
 #endif

@@ -177,7 +177,7 @@ bool isLocked(fileList *list, char *path){
     return false;
 }
 
-void lockFile(fileList**list, char* path, long fdSocket){
+void listLockFile(fileList**list, char* path, long fdSocket){
     fileList *head = *list;
     while (head != NULL)
     {
@@ -191,7 +191,7 @@ void lockFile(fileList**list, char* path, long fdSocket){
     }
 }
 
-void unlockFile(fileList **list, char *path, long fdSocket){
+void listUnlockFile(fileList **list, char *path, long fdSocket){
     fileList *head = *list;
     while (head != NULL)
     {

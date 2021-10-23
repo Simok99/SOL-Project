@@ -45,9 +45,9 @@ void destroyFileList(fileList** list);
 bool isLocked(fileList *list, char *path);
 
 //Effettua la lock del file se presente
-void lockFile(fileList **list, char *path, long fdSocket);
+void listLockFile(fileList **list, char *path, long fdSocket);
 
 //Effettua la unlock del file se presente e se il descriptor risulta corretto
-void unlockFile(fileList **list, char *path, long fdSocket);
+void listUnlockFile(fileList **list, char *path, long fdSocket);
 
 #endif
