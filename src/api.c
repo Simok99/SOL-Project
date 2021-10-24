@@ -123,6 +123,12 @@ int openFile(const char *pathname, int flags){
     }
     free(params);
 
+    int nexpelled;
+    if (readn(fdSocket, (void *)&nexpelled, sizeof(int)) == -1){
+        fprintf(stderr, "Errore nella ricezione della risposta del server\n");
+        return -1;
+    }
+
     msg response;
     if(readn(fdSocket, (void*)&response, sizeof(msg)) == -1){
         fprintf(stderr, "Errore nella ricezione della risposta del server\n");
@@ -133,7 +139,7 @@ int openFile(const char *pathname, int flags){
     char* command = strdup(response.command);
     char* data = strdup(response.data);
 
-    if (strcmp(command, " ") == 0)
+    if (nexpelled == 0)
     {
         if (strcmp(data, "-1") == 0)
         {
@@ -164,22 +170,32 @@ int openFile(const char *pathname, int flags){
         }
     }
     else{
-        //Ho ricevuto file espulsi indietro
-        if (writeOnDisk(command, (char*)data, expelledDir, response.size) != 0)
+        
+        //Uno o piu' file sono stati espulsi
+        int i = 0;
+        while (i < nexpelled)
         {
-            fprintf(stderr, "Impossibile salvare il file %s inviato dal server nella cartella %s\n", command, expelledDir);
-        }
-        printf("File %s espulso dal server salvato nella cartella %s\n", command, expelledDir);
-        while (readn(fdSocket, (void*)&response, sizeof(msg)) != 0)
-        {
-            command = realloc(command, strlen((char*)response.command));
-            strcpy(command, (char*)response.command);
-            if (writeOnDisk(command, (char *)data, expelledDir, response.size) != 0)
+            char *command = strdup(response.command);
+            char *data = strdup(response.data);
+            if (writeOnDisk(command, (void *)data, expelledDir, response.size) != 0)
             {
                 fprintf(stderr, "Impossibile salvare il file %s inviato dal server nella cartella %s\n", command, expelledDir);
-                continue;
             }
             printf("File %s espulso dal server salvato nella cartella %s\n", command, expelledDir);
+            free(command);
+            free(data);
+            i++;
+            if (i<nexpelled)
+            {
+                //Devo leggere un altro file
+                if (readn(fdSocket, (void *)&response, sizeof(msg)) == -1)
+                {
+                    fprintf(stderr, "Errore nella ricezione della risposta del server\n");
+                    break;
+                }
+            }
+            //File terminati
+            else break;
         }
         free(command);
         free(data);
@@ -221,17 +237,32 @@ int readFile(const char *pathname, void **buf, size_t *size){
     free(params);
 
     msg response;
-    if (readn(fdSocket, &(response), sizeof(msg)) == -1)
+    if (readn(fdSocket, (void*)&response, sizeof(msg)) == -1)
     {
         fprintf(stderr, "Errore nella ricezione della risposta del server\n");
         return -1;
     }
 
-    //La risposta del server sara' il contenuto del file e la sua lunghezza
+    char *data = strdup(response.data);
+    if (strcmp(data, "NOTINSTORAGE") == 0)
+    {
+        fprintf(stderr, "File %s non trovato nel server\n", pathname);
+        free(data);
+        return -1;
+    }
+    else if (strcmp(data, "NOTOPEN") == 0)
+    {
+        fprintf(stderr, "Impossibile leggere il file %s (lo hai aperto?)\n", pathname);
+        free(data);
+        return -1;
+    }
+
+    // La risposta del server sara' il contenuto del file e la sua lunghezza
     *size = response.size;
-    void* data = response.data;
     //TODO size+1 in memcpy?
-    memcpy(*buf, data, response.size);
+    *buf = malloc(sizeof(char)*MAX_FILE_SIZE);
+    memcpy(*buf, response.datapointer, response.size+1);
+    free(data);
     return 0;
 }
 
@@ -286,7 +317,7 @@ int writeFile(const char *pathname, const char *dirname){
     fclose(f);
     
     msg request = buildRequest(params, "");
-    memcpy(request.data, buffer, length);
+    strncpy(request.data, buffer, length);
 
     if (writen(fdSocket, (void *)&request, sizeof(msg)) != 1)
     {
@@ -499,9 +530,8 @@ int closeFile(const char *pathname){
         return -1;
     }
 
-    //La risposta del server sara' un intero
-    int replyCode = *((int *)response.data);
-    if (replyCode == 0)
+    // La risposta del server sara' "0" o "-1"
+    if (strcmp(response.data, "0") == 0)
         return 0;
 
     return -1;
