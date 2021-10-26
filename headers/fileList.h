@@ -32,6 +32,9 @@ char* getLastFile(fileList* list);
 //Metodo utilizzato per restituire la lista dei file in stato locked di uno specifico client, imposta n alla dimensione dell'array
 char** getLockedFiles(fileList* list, long fdSocket, int* length);
 
+//Metodo utilizzato per restituire la lista dei file in stato unlocked, imposta n alla dimensione dell'array
+char **getUnlockedFiles(fileList *list, int *length);
+
 //Metodo utilizzato per rimuovere l'ultimo file della lista, restituisce -1 in caso di errore
 int deleteLastFile(fileList** list);
 

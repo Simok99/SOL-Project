@@ -30,6 +30,7 @@ typedef struct icl_hash_s {
     long currentMemory;
     long maxMemory;
     icl_entry_t **buckets;
+    pthread_mutex_t tableLock; //Utilizzata per aggiornare le variabili della tabella della memoria e nentries
     pthread_mutex_t *locks;
     int nlocks;
     unsigned int (*hash_function)(void*);

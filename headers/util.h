@@ -7,6 +7,7 @@
 #include <limits.h>
 #include <libgen.h>
 #include <dirent.h>
+#include <fcntl.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdbool.h>
@@ -37,7 +38,7 @@
 
 //Imposta la cartella di default in cui salvare i file espulsi (lato client)
 #if !defined(EXPELLED_FILES_FOLDER)
-#define EXPELLED_FILES_FOLDER "./~expelledFiles/"
+#define EXPELLED_FILES_FOLDER "./expelledFiles/"
 #endif
 
 #if !defined(MAXBACKLOG)
@@ -82,7 +83,7 @@ typedef struct config{
 typedef struct msg{
     char command[1024];  //Utilizzato dal client, contiene il comando inviato
     char data[MAX_FILE_SIZE];     //Contiene dati generici
-    size_t size;    //La dimensione associata a data
+    size_t size;    //La dimensione associata a data o datapointer
 } msg;
 
 //Funzione utilizzata per effettuare il parsing del file configurazione
