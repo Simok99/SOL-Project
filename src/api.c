@@ -162,6 +162,13 @@ int openFile(const char *pathname, int flags){
             free(data);
             return -1;
         }
+        else if (strcmp(data, "ALREADYLOCKED") == 0)
+        {
+            fprintf(stderr, "Errore in apertura del file %s (file gia' aperto dal client)\n", pathname);
+            free(command);
+            free(data);
+            return -1;
+        }
         else if (strcmp(data, "0") == 0)
         {
             free(command);
@@ -243,32 +250,89 @@ int readFile(const char *pathname, void **buf, size_t *size){
         return -1;
     }
 
-    char *data = strdup(response.data);
-    if (strcmp(data, "NOTINSTORAGE") == 0)
+    char *command = strdup(response.command);
+    if (strcmp(command, "NOTINSTORAGE") == 0)
     {
         fprintf(stderr, "File %s non trovato nel server\n", pathname);
-        free(data);
+        free(command);
         return -1;
     }
-    else if (strcmp(data, "NOTOPEN") == 0)
+    else if (strcmp(command, "NOTOPEN") == 0)
     {
         fprintf(stderr, "Impossibile leggere il file %s (lo hai aperto?)\n", pathname);
-        free(data);
+        free(command);
         return -1;
     }
 
     // La risposta del server sara' il contenuto del file e la sua lunghezza
     *size = response.size;
-    //TODO size+1 in memcpy?
-    *buf = malloc(sizeof(char)*MAX_FILE_SIZE);
-    memcpy(*buf, response.datapointer, response.size+1);
-    free(data);
+    *buf = malloc(sizeof(char)*response.size+1);
+    memcpy(*buf, response.data, response.size+1);
+    free(command);
     return 0;
 }
 
 int readNFiles(int N, const char *dirname){
-    //TODO Implement
-    return -1;
+    if (dirname == NULL)
+    {
+        fprintf(stderr, "Errore: pathname cartella non valido\n");
+        errno = EINVAL;
+        return -1;
+    }
+
+    char **params = malloc(sizeof(char *) * 3);
+    for (int i = 0; i < 3; i++)
+    {
+        params[i] = malloc(sizeof(char) * 1024);
+    }
+
+    snprintf(params[0], sizeof(long), "%ld", fdSocket);
+    snprintf(params[1], sizeof(char) * 1024, "%d %d", READNFILES, N);
+    snprintf(params[2], sizeof(int), "%d", NOFLAGS);
+
+    msg request = buildRequest(params, "");
+    if (writen(fdSocket, (void *)&request, sizeof(msg)) != 1)
+    {
+        fprintf(stderr, "Errore nell'invio della richiesta al server\n");
+        return -1;
+    }
+    for (int i = 0; i < 3; i++)
+    {
+        free(params[i]);
+    }
+    free(params);
+
+    //La risposta del server sara' numero di file letti + contenuti
+    int filesRead;
+    if (readn(fdSocket, (void *)&filesRead, sizeof(int)) == -1)
+    {
+        fprintf(stderr, "Errore nella ricezione della risposta del server\n");
+        return -1;
+    }
+
+    for (int i = 0; i < filesRead; i++)
+    {
+        msg response;
+        if (readn(fdSocket, (void *)&response, sizeof(msg)) == -1)
+        {
+            fprintf(stderr, "Errore nella ricezione della risposta del server\n");
+            return -1;
+        }
+
+        void* buffer = malloc(sizeof(char)*response.size+1);
+        memcpy(buffer, response.data, response.size+1);
+        //Salva il file nella cartella passata come parametro
+        if (writeOnDisk(response.command, buffer, dirname, response.size+1) == 0)
+        {
+            printf("File %s letto dal server e salvato nella cartella %s\n", response.command, dirname);
+        }
+        else {
+            fprintf(stderr, "Impossibile salvare il file %s letto dal server nella cartella %s\n", response.command, dirname);
+        }
+        free(buffer);
+        
+    }
+    return 0;
 }
 
 int writeFile(const char *pathname, const char *dirname){
@@ -318,6 +382,7 @@ int writeFile(const char *pathname, const char *dirname){
     
     msg request = buildRequest(params, "");
     strncpy(request.data, buffer, length);
+    request.size = length;
 
     if (writen(fdSocket, (void *)&request, sizeof(msg)) != 1)
     {
@@ -365,7 +430,37 @@ int writeFile(const char *pathname, const char *dirname){
     //Se dirname != NULL, li devo copiare anche in dirname
     if (dirname != NULL)
     {
-        //TODO implement
+        //TODO fix
+        int src_fd, dst_fd, n, err;
+        unsigned char buffer[4096];
+        src_fd = open(EXPELLED_FILES_FOLDER, O_RDONLY);
+        dst_fd = open(dirname, O_CREAT | O_WRONLY);
+
+        while (true)
+        {
+            err = read(src_fd, buffer, 4096);
+            if (err == -1)
+            {
+                printf("Errore in lettura della cartella %s\n", EXPELLED_FILES_FOLDER);
+                close(dst_fd);
+                break;
+            }
+            n = err;
+
+            if (n == 0){
+                close(src_fd);
+                close(dst_fd);
+                break;
+            }
+
+            err = write(dst_fd, buffer, n);
+            if (err == -1)
+            {
+                printf("Errore in scrittura nella cartella %s\n", dirname);
+                close(src_fd);
+                break;
+            }
+        }
     }
     
     free(data);
@@ -375,8 +470,122 @@ int writeFile(const char *pathname, const char *dirname){
 }
 
 int appendToFile(const char *pathname, void *buf, size_t size, const char *dirname){
-    //TODO Implement
-    return -1;
+    if (!pathname)
+    {
+        fprintf(stderr, "appendToFile: Pathname non valido\n");
+        errno = EINVAL;
+        return -1;
+    }
+    if (!buf)
+    {
+        fprintf(stderr, "appendToFile: Contenuto da appendere non valido\n");
+        errno = EINVAL;
+        return -1;
+    }
+
+    if (openFile(pathname, O_LOCK) != 0)
+    {
+        fprintf(stderr, "appendToFile: Errore nell'apertura del file %s\n",pathname);
+        return -1;
+    }
+    
+
+    char **params = malloc(sizeof(char *) * 3);
+    for (int i = 0; i < 3; i++)
+    {
+        params[i] = malloc(sizeof(char) * 1024);
+    }
+
+    snprintf(params[0], sizeof(long), "%ld", fdSocket);
+    snprintf(params[1], sizeof(char) * 1024, "%d %s", APPENDTOFILE, pathname);
+    snprintf(params[2], sizeof(int), "%d", NOFLAGS);
+
+    msg request = buildRequest(params, "");
+    strncpy(request.data, (char*)buf, size);
+
+    if (writen(fdSocket, (void *)&request, sizeof(msg)) != 1)
+    {
+        fprintf(stderr, "Errore nell'invio della richiesta al server\n");
+        return -1;
+    }
+
+    for (int i = 0; i < 3; i++)
+    {
+        free(params[i]);
+    }
+    free(params);
+
+    msg response;
+    if (readn(fdSocket, (void *)&response, sizeof(msg)) == -1)
+    {
+        fprintf(stderr, "Errore nella ricezione della risposta del server\n");
+        return -1;
+    }
+
+    bool updated = false;
+    char *data = strdup(response.data);
+    char *command = strdup(response.command);
+    if (strcmp(data, "") == 0)
+    {
+        if (strcmp(command, "TOOBIG") == 0)
+        {
+            fprintf(stderr, "File %s troppo grande per il server (modificabile da util.h)\n", pathname);
+        }
+        else if (strcmp(command, "FAILED") == 0)
+        {
+            fprintf(stderr, "File %s rimosso dal server (impossibile ripristinare un backup)\n", pathname);
+        }
+        else if (strcmp(command, "UNCHANGED") == 0)
+        {
+            fprintf(stderr, "Impossibile aggiornare file %s (ripristinato a versione precendete)\n", pathname);
+        }
+        else
+            // File aggiornato correttamente
+            updated = true;
+    }
+
+    // Se il server ha inviato file indietro, sono salvati nella cartella expelledFiles
+    // Se dirname != NULL, li devo copiare anche in dirname
+    if (dirname != NULL)
+    {
+        // TODO fix
+        int src_fd, dst_fd, n, err;
+        unsigned char buffer[4096];
+        src_fd = open(EXPELLED_FILES_FOLDER, O_RDONLY);
+        dst_fd = open(dirname, O_CREAT | O_WRONLY);
+
+        while (true)
+        {
+            err = read(src_fd, buffer, 4096);
+            if (err == -1)
+            {
+                printf("Errore in lettura della cartella %s\n", EXPELLED_FILES_FOLDER);
+                close(dst_fd);
+                break;
+            }
+            n = err;
+
+            if (n == 0)
+            {
+                close(src_fd);
+                close(dst_fd);
+                break;
+            }
+
+            err = write(dst_fd, buffer, n);
+            if (err == -1)
+            {
+                printf("Errore in scrittura nella cartella %s\n", dirname);
+                close(src_fd);
+                break;
+            }
+        }
+    }
+
+    free(data);
+    free(command);
+    if (updated) return 0;
+    else return -1;
 }
 
 int lockFile(const char *pathname){
