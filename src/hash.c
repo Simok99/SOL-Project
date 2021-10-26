@@ -89,6 +89,10 @@ icl_hash_create( int nbuckets, unsigned int (*hash_function)(void*), int (*hash_
         pthread_mutex_init(&(ht->locks[i]), NULL);
     }
 
+    pthread_mutex_t newLock = PTHREAD_MUTEX_INITIALIZER;
+    ht->tableLock = newLock;
+    pthread_mutex_init(&(ht->tableLock), NULL);
+
     ht->hash_function = hash_function ? hash_function : hash_pjw;
     ht->hash_key_compare = hash_key_compare ? hash_key_compare : string_compare;
 
@@ -183,12 +187,15 @@ icl_hash_insert(icl_hash_t *ht, void* key, void *data, long fileSize)
 
     curr->next = ht->buckets[hash_val]; /* add at start */
     ht->buckets[hash_val] = curr;
-    ht->currentMemory += fileSize;
-    ht->nentries++;
 
     pthread_mutex_unlock(&(ht->locks[hash_val]));
 
     /*FINE SEZIONE CRITICA BUCKET*/
+
+    LOCK(&(ht->tableLock));
+    ht->currentMemory += (long)fileSize;
+    ht->nentries++;
+    UNLOCK(&(ht->tableLock));
     return curr;
 }
 
@@ -226,7 +233,10 @@ icl_hash_update_insert(icl_hash_t *ht, void* key, void *data, void **olddata, lo
             if (olddata != NULL) {
                 *olddata = curr->data;
                 free(curr->key);
+                LOCK(&(ht->tableLock));
+                ht->currentMemory -= (long)strlen((char*)curr->data);
                 ht->nentries--;
+                UNLOCK(&(ht->tableLock));
             }
 
             if (prev == NULL)
@@ -251,13 +261,15 @@ icl_hash_update_insert(icl_hash_t *ht, void* key, void *data, void **olddata, lo
     curr->next = ht->buckets[hash_val]; /* add at start */
 
     ht->buckets[hash_val] = curr;
-    ht->currentMemory -= (long) strlen((char*)data);
-    ht->currentMemory += fileSize;
-    ht->nentries++;
 
     pthread_mutex_unlock(&(ht->locks[hash_val]));
 
     /*FINE SEZIONE CRITICA BUCKET*/
+
+    LOCK(&(ht->tableLock));
+    ht->currentMemory += fileSize;
+    ht->nentries++;
+    UNLOCK(&(ht->tableLock));
 
     if(olddata!=NULL && *olddata!=NULL)
         *olddata = NULL;
@@ -299,10 +311,12 @@ int icl_hash_delete(icl_hash_t *ht, void* key, void (*free_key)(void*), void (*f
             if (*free_key && curr->key) (*free_key)(curr->key);
             if (*free_data && curr->data)
             {
+                LOCK(&(ht->tableLock));
                 size_t oldSize = strlen((char *)curr->data);
                 ht->currentMemory -= (long)oldSize;
-                (*free_data)(curr->data);
                 ht->nentries--;
+                UNLOCK(&(ht->tableLock));
+                (*free_data)(curr->data);
                 free(curr);
             }
 
@@ -354,7 +368,8 @@ icl_hash_destroy(icl_hash_t *ht, void (*free_key)(void*), void (*free_data)(void
         pthread_mutex_destroy(&(ht->locks[i]));
     }
     free(ht->locks);
-    
+
+    pthread_mutex_destroy(&(ht->tableLock));
 
     if(ht->buckets) free(ht->buckets);
     if(ht) free(ht);
