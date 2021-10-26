@@ -51,6 +51,7 @@ static void *workerpool_thread(void *threadpool) {
 	
 	LOCK_RETURN(&(pool->lock), NULL);
 	pool->taskonthefly--;
+    pool->requestsServedByThread[myid]++;
     }
     UNLOCK_RETURN(&(pool->lock), NULL);
 
@@ -82,6 +83,12 @@ threadpool_t *createThreadPool(int numthreads, int pending_size) {
     if (pool == NULL) return NULL;
 
     // condizioni iniziali
+    pool->requestsServedByThread = malloc(sizeof(int)*numthreads);
+    for (int i = 0; i < numthreads; i++)
+    {
+        pool->requestsServedByThread[i] = 0;
+    }
+    
     pool->numthreads   = 0;
     pool->taskonthefly = 0;
     pool->queue_size = (pending_size == 0 ? -1 : pending_size);

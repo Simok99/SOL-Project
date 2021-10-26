@@ -121,6 +121,34 @@ char** getLockedFiles(fileList* list, long fdSocket, int* length){
     return files;
 }
 
+char** getUnlockedFiles(fileList *list, int *length){
+    int n = 0;
+    char **files = NULL;
+    fileList *head = list;
+    while (head != NULL)
+    {
+        if (!head->isLocked)
+        {
+            n++;
+        }
+        head = head->next;
+    }
+    files = malloc(sizeof(char *) * n);
+    head = list;
+    int i = 0;
+    while (head != NULL)
+    {
+        if (!head->isLocked)
+        {
+            files[i] = strdup((char *)head->path);
+            i++;
+        }
+        head = head->next;
+    }
+    *length = n;
+    return files;
+}
+
 int deleteLastFile(fileList **list){
     fileList *curr = *list;
     fileList *prev = NULL;
