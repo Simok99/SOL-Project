@@ -10,7 +10,6 @@ typedef struct file
     bool isLocked;  //Funge da lock per il file
     char path[MAX_PATH_LENGTH];
     unsigned int size;
-    unsigned int status;
     struct file* next;
 } fileList;
 

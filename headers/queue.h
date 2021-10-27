@@ -20,6 +20,7 @@ typedef struct queue
 {
     struct node* head;
     struct node* tail;
+	int size;	
 } queue;
 
 //Metodo utilizzato per creare una coda

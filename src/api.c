@@ -329,6 +329,7 @@ int readNFiles(int N, const char *dirname){
         else {
             fprintf(stderr, "Impossibile salvare il file %s letto dal server nella cartella %s\n", response.command, dirname);
         }
+        
         free(buffer);
         
     }
@@ -359,7 +360,6 @@ int writeFile(const char *pathname, const char *dirname){
     {
         fprintf(stderr, "Errore: impossibile aprire il file %s\n",pathname);
         errno = EINVAL;
-        fclose(f);
         return -1;
     }
     char *buffer = malloc(sizeof(char)*MAX_FILE_SIZE);
@@ -397,6 +397,13 @@ int writeFile(const char *pathname, const char *dirname){
     free(params);
     free(buffer);
 
+    int nexpelled;
+    if (readn(fdSocket, (void *)&nexpelled, sizeof(int)) == -1)
+    {
+        fprintf(stderr, "Errore nella ricezione della risposta del server\n");
+        return -1;
+    }
+
     msg response;
     if (readn(fdSocket, (void*)&response, sizeof(msg)) == -1)
     {
@@ -405,65 +412,60 @@ int writeFile(const char *pathname, const char *dirname){
     }
 
     bool updated = false;
-    char* data = strdup(response.data);
     char* command = strdup(response.command);
-    if (strcmp(data, "") == 0)
+    if (strcmp(command, "TOOBIG") == 0)
     {
-        if (strcmp(command, "TOOBIG") == 0)
-        {
-            fprintf(stderr, "File %s troppo grande per il server (modificabile da util.h)\n", pathname);
-        }
-        else if (strcmp(command, "FAILED") == 0)
-        {
-            fprintf(stderr, "File %s rimosso dal server (impossibile ripristinare un backup)\n", pathname);
-        }
-        else if (strcmp(command, "UNCHANGED") == 0)
-        {
-            fprintf(stderr, "Impossibile aggiornare file %s (ripristinato a versione precendete)\n", pathname);
-        }
-        else
-            // File aggiornato correttamente
-            updated = true;
+        fprintf(stderr, "File %s troppo grande per il server\n", pathname);
+    }
+    else
+    {
+        // File aggiornato correttamente
+        updated = true;
     }
 
-    //Se il server ha inviato file indietro, sono salvati nella cartella expelledFiles
-    //Se dirname != NULL, li devo copiare anche in dirname
-    if (dirname != NULL)
+    if (nexpelled == 0)
     {
-        //TODO fix
-        int src_fd, dst_fd, n, err;
-        unsigned char buffer[4096];
-        src_fd = open(EXPELLED_FILES_FOLDER, O_RDONLY);
-        dst_fd = open(dirname, O_CREAT | O_WRONLY);
-
-        while (true)
+        //Nessun file espulso dal server
+        free(command);
+        if (updated) return 0;
+        else return -1;
+    }
+    else{
+        //Ci sono file espulsi dal server, vanno salvati in dirname
+        int i = 0;
+        while (i < nexpelled)
         {
-            err = read(src_fd, buffer, 4096);
-            if (err == -1)
+            // Devo leggere un file
+            if (readn(fdSocket, (void *)&response, sizeof(msg)) == -1)
             {
-                printf("Errore in lettura della cartella %s\n", EXPELLED_FILES_FOLDER);
-                close(dst_fd);
+                fprintf(stderr, "Errore nella ricezione della risposta del server\n");
                 break;
             }
-            n = err;
-
-            if (n == 0){
-                close(src_fd);
-                close(dst_fd);
-                break;
-            }
-
-            err = write(dst_fd, buffer, n);
-            if (err == -1)
+            char *command = strdup(response.command);
+            char *data = strdup(response.data);
+            if (dirname != NULL)
             {
-                printf("Errore in scrittura nella cartella %s\n", dirname);
-                close(src_fd);
-                break;
+                if (writeOnDisk(command, (void *)data, dirname, response.size) != 0)
+                {
+                    fprintf(stderr, "Impossibile salvare il file %s inviato dal server nella cartella %s\n", command, dirname);
+                }
+                printf("File %s espulso dal server salvato nella cartella %s\n", command, dirname);
             }
+            else{
+                //Salva su cartella di default
+                if (writeOnDisk(command, (void *)data, expelledDir, response.size) != 0)
+                {
+                    fprintf(stderr, "Impossibile salvare il file %s inviato dal server nella cartella %s\n", command, expelledDir);
+                }
+                printf("File %s espulso dal server salvato nella cartella %s\n", command, expelledDir);
+            }
+            
+            free(command);
+            free(data);
+            i++;
         }
     }
     
-    free(data);
     free(command);
     if (updated) return 0;
     else return -1;
@@ -515,6 +517,13 @@ int appendToFile(const char *pathname, void *buf, size_t size, const char *dirna
     }
     free(params);
 
+    int nexpelled;
+    if (readn(fdSocket, (void *)&nexpelled, sizeof(int)) == -1)
+    {
+        fprintf(stderr, "Errore nella ricezione della risposta del server\n");
+        return -1;
+    }
+
     msg response;
     if (readn(fdSocket, (void *)&response, sizeof(msg)) == -1)
     {
@@ -525,67 +534,69 @@ int appendToFile(const char *pathname, void *buf, size_t size, const char *dirna
     bool updated = false;
     char *data = strdup(response.data);
     char *command = strdup(response.command);
-    if (strcmp(data, "") == 0)
+
+    if (strcmp(command, "TOOBIG") == 0)
     {
-        if (strcmp(command, "TOOBIG") == 0)
-        {
-            fprintf(stderr, "File %s troppo grande per il server (modificabile da util.h)\n", pathname);
-        }
-        else if (strcmp(command, "FAILED") == 0)
-        {
-            fprintf(stderr, "File %s rimosso dal server (impossibile ripristinare un backup)\n", pathname);
-        }
-        else if (strcmp(command, "UNCHANGED") == 0)
-        {
-            fprintf(stderr, "Impossibile aggiornare file %s (ripristinato a versione precendete)\n", pathname);
-        }
+        fprintf(stderr, "File %s troppo grande per il server\n", pathname);
+    }
+    else
+    {
+        // File aggiornato correttamente
+        updated = true;
+    }
+
+    if (nexpelled == 0)
+    {
+        // Nessun file espulso dal server
+        free(command);
+        if (updated)
+            return 0;
         else
-            // File aggiornato correttamente
-            updated = true;
+            return -1;
     }
-
-    // Se il server ha inviato file indietro, sono salvati nella cartella expelledFiles
-    // Se dirname != NULL, li devo copiare anche in dirname
-    if (dirname != NULL)
+    else
     {
-        // TODO fix
-        int src_fd, dst_fd, n, err;
-        unsigned char buffer[4096];
-        src_fd = open(EXPELLED_FILES_FOLDER, O_RDONLY);
-        dst_fd = open(dirname, O_CREAT | O_WRONLY);
-
-        while (true)
+        // Ci sono file espulsi dal server, vanno salvati in dirname
+        int i = 0;
+        while (i < nexpelled)
         {
-            err = read(src_fd, buffer, 4096);
-            if (err == -1)
+            // Devo leggere un file
+            if (readn(fdSocket, (void *)&response, sizeof(msg)) == -1)
             {
-                printf("Errore in lettura della cartella %s\n", EXPELLED_FILES_FOLDER);
-                close(dst_fd);
+                fprintf(stderr, "Errore nella ricezione della risposta del server\n");
                 break;
             }
-            n = err;
+            char *command = strdup(response.command);
+            char *data = strdup(response.data);
+            if (dirname != NULL)
+            {
+                if (writeOnDisk(command, (void *)data, dirname, response.size) != 0)
+                {
+                    fprintf(stderr, "Impossibile salvare il file %s inviato dal server nella cartella %s\n", command, dirname);
+                }
+                printf("File %s espulso dal server salvato nella cartella %s\n", command, dirname);
+            }
+            else
+            {
+                // Salva su cartella di default
+                if (writeOnDisk(command, (void *)data, expelledDir, response.size) != 0)
+                {
+                    fprintf(stderr, "Impossibile salvare il file %s inviato dal server nella cartella %s\n", command, expelledDir);
+                }
+                printf("File %s espulso dal server salvato nella cartella %s\n", command, expelledDir);
+            }
 
-            if (n == 0)
-            {
-                close(src_fd);
-                close(dst_fd);
-                break;
-            }
-
-            err = write(dst_fd, buffer, n);
-            if (err == -1)
-            {
-                printf("Errore in scrittura nella cartella %s\n", dirname);
-                close(src_fd);
-                break;
-            }
+            free(command);
+            free(data);
+            i++;
         }
     }
-
     free(data);
     free(command);
-    if (updated) return 0;
-    else return -1;
+    if (updated)
+        return 0;
+    else
+        return -1;
 }
 
 int lockFile(const char *pathname){

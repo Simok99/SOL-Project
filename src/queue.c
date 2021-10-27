@@ -6,33 +6,12 @@ queue* createQueue(){
     queue* q = malloc(sizeof(queue));
     q->head = NULL;
     q->tail = NULL;
+    q->size = 0;
     return q;
 }
 
 int queueLength(queue* queuep){
-    queue* temp = queuep;
-    if (!queuep)
-    {
-        return 0;
-    }
-    
-    if (queuep->head == NULL)
-    {
-        return 0;
-    }
-
-    if (queuep->head == queuep->tail)
-    {
-        return 1;
-    }
-
-    int n = 1;
-    while (temp->head != temp->tail)
-    {
-        n++;
-        temp->head = temp->head->next;
-    }
-    return n;
+    return queuep->size;
 }
 
 void insertQueue(queue* queue, char* id, unsigned int opCode, void* data){
@@ -46,6 +25,7 @@ void insertQueue(queue* queue, char* id, unsigned int opCode, void* data){
     newNode->opCode = opCode;
     newNode->id = id;
     newNode->data = data;
+    queue->size += 1;
     newNode->next = NULL;
 
     //Se coda vuota
@@ -71,6 +51,12 @@ node* popQueue(queue* queue){
     }
     node* oldHead = queue->head;
     queue->head = queue->head->next;
+
+    if (queue->head == NULL)
+    {
+        queue->tail = NULL;
+    }
+    queue->size-=1;
     return oldHead;
 }
 
@@ -135,6 +121,7 @@ void deleteQueue(queue* queue){
     while (queue->head != queue->tail)
     {
         node* toFree = queue->head->data;
+        free(queue->head->id);
         queue->head = queue->head->next;
         free(toFree);
     }

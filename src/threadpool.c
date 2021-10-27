@@ -69,6 +69,8 @@ static int freePoolResources(threadpool_t *pool) {
         pthread_mutex_destroy(&(pool->lock));
         pthread_cond_destroy(&(pool->cond));
     }
+    free(pool->requestsServedByThread);
+    
     free(pool);    
     return 0;
 }

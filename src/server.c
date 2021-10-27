@@ -337,10 +337,10 @@ int main(int argc, char *argv[])
                     else if (res < 0)
                     {
                         //Errore
-                        fprintf(stderr, WARNING "Impossibile aggiungere richiesta al threadPool");
+                        fprintf(stderr, WARNING "Impossibile aggiungere richiesta al threadPool\n");
                     }
                     //Non ci sono thread disponibili, ne creo uno detached
-                    wLog(WARNING "Nessun thread disponibile nel threadPool, uso uno in modalita' detached");
+                    wLog(WARNING "Nessun thread disponibile nel threadPool, uso uno in modalita' detached\n");
                     res = spawnThread(workerTask, (void*)args);
                     if (res == 0)
                     {
@@ -349,8 +349,8 @@ int main(int argc, char *argv[])
                     }
                     else {
                         //Errore
-                        fprintf(stderr, WARNING "Impossibile avviare un thread in modalita' detached");
-                        wLog(ERROR "Impossibile avviare un thread per eseguire la richiesta");
+                        fprintf(stderr, WARNING "Impossibile avviare un thread in modalita' detached\n");
+                        wLog(ERROR "Impossibile avviare un thread per eseguire la richiesta\n");
                         continue;
                     }
                 }
@@ -365,10 +365,10 @@ int main(int argc, char *argv[])
     close(fdSocket);
 
     if (howManyReads == 0) meanFilesReadSize = 0;
-    else meanFilesReadSize = currentReadBytes/howManyReads;
+    else meanFilesReadSize = (float)currentReadBytes/(float)howManyReads;
 
     if (howManyWrites == 0) meanFilesWriteSize = 0;
-    else meanFilesWriteSize = currentWrittenBytes/howManyWrites;
+    else meanFilesWriteSize = (float)currentWrittenBytes/(float)howManyWrites;
 
     lastFiles = lengthList(filesList);
 
@@ -406,6 +406,7 @@ void wLog(char *msg){
 
 void printFinalInfos(){
     //Scrive sulla console
+    icl_hash_dump(stdout, hashTable);
     fprintf(stdout, "\n\n-----Statistiche finali Server-----\n\n"
     "\nNumero di read effettuate: %d"
     "\nSize media delle read effettuate: %.2f bytes"
@@ -433,6 +434,7 @@ void printFinalInfos(){
 
     //Scrive sul file di log
     pthread_mutex_lock(&logLock);
+    icl_hash_dump(logFile, hashTable);
     fprintf(logFile, "\n\n-----Statistiche finali Server-----\n\n"
     "\nNumero di read effettuate: %d"
     "\nSize media delle read effettuate: %.2f bytes"
@@ -455,8 +457,6 @@ void printFinalInfos(){
     {
         fprintf(logFile, "Il thread %d ha eseguito %d richieste\n", i, threadPool->requestsServedByThread[i]);
     }
-
-    icl_hash_dump(logFile, hashTable);
     fflush(logFile);
     pthread_mutex_unlock(&logLock);
 }
@@ -495,7 +495,7 @@ void checkConfig(){
     {
         long mem = DEFAULT_MAXMEMORY;
         fprintf(stderr, WARNING "Memoria massima utilizzabile non impostata, utilizzo %ldMB\n", mem / 1000000);
-        conf->memorySpace = mem*1000000;
+        conf->memorySpace = mem;
     }
     else if (conf->memorySpace <= 0)
     {
@@ -618,6 +618,7 @@ void workerTask(void* args){
                         if (writen(notifiedSocket, (void*)&response, sizeof(msg)) == -1)
                         {
                             fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                            break;
                         }
                     }
                     else{
@@ -627,6 +628,7 @@ void workerTask(void* args){
                         if (writen(notifiedSocket, (void*)&response, sizeof(msg)) == -1)
                         {
                             fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                            break;
                         }
 
                         free(notifyClientNode->data);
@@ -636,7 +638,11 @@ void workerTask(void* args){
                 }
                 UNLOCK(&queueForLocksLock);
                 LOCK(&openFilesListLock);
-                deleteFile(&openFilesList, lockedFiles[i], fdSocket);
+                if(deleteFile(&openFilesList, lockedFiles[i], fdSocket) != -1){
+                    LOCK(&statsLock);
+                    howManyCloses++;
+                    UNLOCK(&statsLock);
+                }
                 UNLOCK(&openFilesListLock);
                 free(lockedFiles[i]);
             }
@@ -662,10 +668,10 @@ void workerTask(void* args){
     int flags = atoi(commands[2]);
     char* data = (char*)request.data;
 
-    printf("OPERATION:%d\n",operation);
+    /*printf("OPERATION:%d\n",operation);
     printf("PARAM:%s\n", param);
     printf("FLAGS:%d\n", flags);
-    printf("DATA:%s\n",data);
+    printf("DATA:%s\n",data);*/
 
     //Esegue la richiesta se risulta valida
     switch (operation)
@@ -687,10 +693,12 @@ void workerTask(void* args){
                 if (writen(fdSocket, (void *)&k, sizeof(int)) == -1)
                 {
                     fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                    break;
                 }
                 if (writen(fdSocket, &response, sizeof(response)) == -1)
                 {
                     fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                    break;
                 }
                 break;
             }
@@ -716,10 +724,12 @@ void workerTask(void* args){
                 if (writen(fdSocket, (void *)&k, sizeof(int)) == -1)
                 {
                     fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                    break;
                 }
                 if (writen(fdSocket, &response, sizeof(response)) == -1)
                 {
                     fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                    break;
                 }
                 free(expelledFilesQueue);
                 break;
@@ -754,10 +764,12 @@ void workerTask(void* args){
                 if (writen(fdSocket, (void *)&k, sizeof(int)) == -1)
                 {
                     fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                    break;
                 }
                 if (writen(fdSocket, &response, sizeof(msg)) == -1)
                 {
                     fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                    break;
                 }
             }
             else {
@@ -778,6 +790,7 @@ void workerTask(void* args){
                     if (writen(fdSocket, &response, sizeof(msg)) == -1)
                     {
                         fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                        break;
                     }
                     free(newFile->id);
                     free(newFile->data);
@@ -799,11 +812,14 @@ void workerTask(void* args){
                 if (writen(fdSocket, (void *)&k, sizeof(int)) == -1)
                 {
                     fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                    break;
                 }
                 if (writen(fdSocket, &response, sizeof(msg)) == -1)
                 {
                     fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                    break;
                 }
+                free(param);
                 break;
             }
             //File trovato, tenta di acquisire la lock
@@ -819,17 +835,23 @@ void workerTask(void* args){
                 if (writen(fdSocket, (void *)&k, sizeof(int)) == -1)
                 {
                     fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                    break;
                 }
                 if (writen(fdSocket, &response, sizeof(msg)) == -1)
                 {
                     fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                    break;
                 }
+                free(param);
                 break;
             }
             UNLOCK(&filesListLock);
             if (tryLock(param, fdSocket))
             {
                 // Lock acquisita
+                LOCK(&openFilesListLock);
+                insertFile(&openFilesList, param, fdSocket);
+                UNLOCK(&openFilesListLock);
                 //  Invia messaggio valore di ritorno 0
                 char *r = "0";
                 strcpy(response.data, r);
@@ -837,11 +859,22 @@ void workerTask(void* args){
                 if (writen(fdSocket, (void *)&k, sizeof(int)) == -1)
                 {
                     fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                    break;
                 }
                 if (writen(fdSocket, &response, sizeof(msg)) == -1)
                 {
                     fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                    break;
                 }
+                LOCK(&statsLock);
+                howManyOpenLocks++;
+                howManyLocks--;
+                UNLOCK(&statsLock);
+                char loginfo[1024];
+                snprintf(loginfo, 1024, INFO "Client %ld open-locked file %s\n", fdSocket, param);
+                printf("%s", loginfo);
+                wLog(loginfo);
+                free(param);
                 break;
             }
             // Lock non acquisita, inserisco il client in coda
@@ -867,11 +900,14 @@ void workerTask(void* args){
                 if (writen(fdSocket, (void *)&k, sizeof(int)) == -1)
                 {
                     fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                    break;
                 }
                 if (writen(fdSocket, &response, sizeof(msg)) == -1)
                 {
                     fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                    break;
                 }
+                free(pathname);
                 break;
             }
 
@@ -884,7 +920,7 @@ void workerTask(void* args){
 
             checkMemoryFIFO(&expelledFilesQueue, request.size);
 
-            icl_entry_t *new = icl_hash_insert(hashTable, (void*)pathname, (void*)strdup(data), (long)request.size);
+            icl_entry_t *new = icl_hash_insert(hashTable, (void*)pathname, (void*)(data), (long)request.size);
             if (new == NULL)
             {
                 //Errore
@@ -897,10 +933,12 @@ void workerTask(void* args){
                 if (writen(fdSocket, (void *)&k, sizeof(int)) == -1)
                 {
                     fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                    break;
                 }
                 if (writen(fdSocket, &response, sizeof(msg)) == -1)
                 {
                     fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                    break;
                 }
                 deleteQueue(expelledFilesQueue);
                 free(pathname);
@@ -909,9 +947,6 @@ void workerTask(void* args){
             LOCK(&filesListLock);
             insertFile(&filesList, param, fdSocket);
             UNLOCK(&filesListLock);
-            LOCK(&openFilesListLock);
-            insertFile(&openFilesList, param, fdSocket);
-            UNLOCK(&openFilesListLock);
 
             //File inserito correttamente
             LOCK(&statsLock);
@@ -929,6 +964,9 @@ void workerTask(void* args){
             if (tryLock(pathname, fdSocket))
             {
                 //Lock acquisita dal client, risponde numero file espulsi+0 oppure numero file espulsi+file espulsi
+                LOCK(&openFilesListLock);
+                insertFile(&openFilesList, param, fdSocket);
+                UNLOCK(&openFilesListLock);
                 if (queueLength(expelledFilesQueue) == 0)
                 {
                     char *r = "0";
@@ -938,10 +976,12 @@ void workerTask(void* args){
                     if (writen(fdSocket, (void*)&k, sizeof(int)) == -1)
                     {
                         fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                        break;
                     }
                     if (writen(fdSocket, &response, sizeof(msg)) == -1)
                     {
                         fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                        break;
                     }
                 }
                 else
@@ -963,6 +1003,7 @@ void workerTask(void* args){
                         if (writen(fdSocket, &response, sizeof(msg)) == -1)
                         {
                             fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                            break;
                         }
                         free(newFile->id);
                         free(newFile->data);
@@ -1000,15 +1041,43 @@ void workerTask(void* args){
                 if (writen(fdSocket, (void *)&k, sizeof(int)) == -1)
                 {
                     fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                    break;
                 }
                 if (writen(fdSocket, &response, sizeof(msg)) == -1)
                 {
                     fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                    break;
                 }
+                //free(param);
                 break;
             }
             else{
-                //File trovato
+                //File trovato, lo apre se non risulta locked
+                if (isLocked(filesList, param))
+                {
+                    char loginfo[1024];
+                    snprintf(loginfo, 1024, INFO "File %s non aperto dal client %ld (risulta locked)\n", param, fdSocket);
+                    printf("%s", loginfo);
+                    wLog(loginfo);
+                    // Invia messaggio valore di ritorno -1 (file non aperto)
+                    char *r = "-1";
+                    strcpy(response.command, " ");
+                    strcpy(response.data, r);
+                    int k = 0;
+                    if (writen(fdSocket, (void *)&k, sizeof(int)) == -1)
+                    {
+                        fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                        break;
+                    }
+                    if (writen(fdSocket, &response, sizeof(msg)) == -1)
+                    {
+                        fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                        break;
+                    }
+                    break;
+                }
+                
+                //File non locked
                 LOCK(&openFilesListLock);
                 insertFile(&openFilesList, param, fdSocket);
                 UNLOCK(&openFilesListLock);
@@ -1024,6 +1093,7 @@ void workerTask(void* args){
                 if (writen(fdSocket, (void *)&k, sizeof(int)) == -1)
                 {
                     fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                    break;
                 }
                 if (writen(fdSocket, &response, sizeof(msg)) == -1)
                 {
@@ -1049,7 +1119,9 @@ void workerTask(void* args){
                 if (writen(fdSocket, &response, sizeof(msg)) == -1)
                 {
                     fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                    break;
                 }
+                free(pathname);
                 break;
             }
             //File trovato nel server
@@ -1064,6 +1136,7 @@ void workerTask(void* args){
                 if (writen(fdSocket, &response, sizeof(msg)) == -1)
                 {
                     fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                    break;
                 }
 
                 LOCK(&statsLock);
@@ -1074,6 +1147,7 @@ void workerTask(void* args){
                 snprintf(loginfo, 1024, INFO "Il client %ld ha letto %ld bytes del file %s\n", fdSocket, size, pathname);
                 printf("%s", loginfo);
                 wLog(loginfo);
+                free(pathname);
                 break;
             }
             else{
@@ -1086,26 +1160,29 @@ void workerTask(void* args){
                 if (writen(fdSocket, &response, sizeof(msg)) == -1)
                 {
                     fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                    break;
                 }
+                free(pathname);
                 break;
             }
+            free(pathname);
             break;
         }
-        break;
 
     case READNFILES:
         {
             int n = atoi(param);
+            free(param);
             if (n <= 0)
             {
                 //Legge e restituisce tutti i file non locked
                 int filesInStorage;
                 LOCK(&filesListLock);
                 char** unlockedFiles = getUnlockedFiles(filesList, &filesInStorage);
-                UNLOCK(&filesListLock);
                 if (writen(fdSocket, (void *)&filesInStorage, sizeof(int)) == -1)
                 {
                     fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                    break;
                 }
                 for (int i = 0; i < filesInStorage; i++)
                 {
@@ -1117,6 +1194,7 @@ void workerTask(void* args){
                     if (writen(fdSocket, (void *)&response, sizeof(msg)) == -1)
                     {
                         fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                        break;
                     }
                     LOCK(&statsLock);
                     howManyReads++;
@@ -1125,6 +1203,8 @@ void workerTask(void* args){
                     free(unlockedFiles[i]);
                 }
                 free(unlockedFiles);
+                UNLOCK(&filesListLock);
+                //free(param);
                 break;
             }
             
@@ -1132,22 +1212,32 @@ void workerTask(void* args){
             LOCK(&filesListLock);
             int filesUnlockedInStorage, i=0;
             char **unlockedFiles = getUnlockedFiles(filesList, &filesUnlockedInStorage);
-            UNLOCK(&filesListLock);
+            if (filesUnlockedInStorage == 0)
+            {
+                if (writen(fdSocket, (void *)&filesUnlockedInStorage, sizeof(int)) == -1)
+                {
+                    fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                    break;
+                }
+            }
+            
             if (n >= filesUnlockedInStorage)
             {
                 if (writen(fdSocket, (void *)&filesUnlockedInStorage, sizeof(int)) == -1)
                 {
                     fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                    break;
                 }
             }
             else {
                 if (writen(fdSocket, (void *)&n, sizeof(int)) == -1)
                 {
                     fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                    break;
                 }
             }
             
-            while (i <= n && i < filesUnlockedInStorage)
+            while (i < n && i <= filesUnlockedInStorage)
             {
                 char *filename = unlockedFiles[i];
                 void *fileData = icl_hash_find(hashTable, (void *)filename);
@@ -1157,14 +1247,18 @@ void workerTask(void* args){
                 if (writen(fdSocket, (void *)&response, sizeof(msg)) == -1)
                 {
                     fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                    break;
                 }
                 LOCK(&statsLock);
                 howManyReads++;
                 currentReadBytes += (long)response.size;
                 UNLOCK(&statsLock);
                 free(unlockedFiles[i]);
+                i++;
             }
             free(unlockedFiles);
+            UNLOCK(&filesListLock);
+            //free(param);
         }
         break;
 
@@ -1182,63 +1276,102 @@ void workerTask(void* args){
                 if (writen(fdSocket, &response, sizeof(msg)) == -1)
                 {
                     fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                    break;
                 }
+                free(filePath);
                 break;
             }
             //Avendo effettuato openFile con il flag O_CREATE_OR_O_LOCK il file esiste nel server ed e' aperto dal client
             //TODO lock memoria?
-            void* backupData = NULL;
-            if(icl_hash_update_insert(hashTable, (void*)filePath, (void*)strdup(data), &backupData, (long)request.size) == NULL)
+            queue *expelledFilesQueue = createQueue();
+
+            checkMemoryFIFO(&expelledFilesQueue, request.size);
+
+            if(icl_hash_update_insert(hashTable, (void*)filePath, (void*)strdup(data), NULL, (long)request.size) == NULL)
             {
-                //Errore nell'aggiornamento del contenuto del file, provo a ripristinare il vecchio contenuto
-                if (icl_hash_update_insert(hashTable, (void*)filePath, backupData, NULL, (long)strlen((char*)backupData)) == NULL)
+                LOCK(&openFilesListLock);
+                deleteFile(&openFilesList, filePath, fdSocket);
+                UNLOCK(&openFilesListLock);
+                LOCK(&statsLock);
+                howManyCloses++;
+                UNLOCK(&statsLock);
+                LOCK(&filesListLock);
+                deleteFile(&filesList, filePath, fdSocket);
+                UNLOCK(&filesListLock);
+                fprintf(stderr, WARNING "File %s eliminato dal server (troppo grande)\n", filePath);
+                free(filePath);
+                //Invia i file espulsi per fare spazio
+                int n = queueLength(expelledFilesQueue);
+                if (writen(fdSocket, (void *)&n, sizeof(int)) == -1)
                 {
-                    //Non sono riuscito a ripristinare il file, provo a rimuoverlo
-                    if (icl_hash_delete(hashTable, (void*)filePath, free, free) == 0)
-                    {
-                        LOCK(&openFilesListLock);
-                        deleteFile(&openFilesList, filePath, fdSocket);
-                        UNLOCK(&openFilesListLock);
-                        LOCK(&filesListLock);
-                        deleteFile(&filesList, filePath, fdSocket);
-                        UNLOCK(&filesListLock);
-                        char loginfo[1024];
-                        snprintf(loginfo, 1024, WARNING "File %s rimosso dal server (impossibile ripristinarlo)\n", filePath);
-                        printf("%s", loginfo);
-                        wLog(loginfo);
-                        //Invia messaggio valore di ritorno data=NULL e command="FAILED" (impossibile ripristinare il file)
-                        response.size = 0;
-                        char* r = "FAILED";
-                        strcpy(response.command, r);
-                        strcpy(response.data, "");
-                        if (writen(fdSocket, &response, sizeof(msg)) == -1)
-                        {
-                            fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
-                        }
-                        break;
-                    }
-                    char loginfo[1024];
-                    snprintf(loginfo, 1024, ERROR "Impossibile rimuovere file %s dal server (dopo tentato ripristino)\n", filePath);
-                    printf("%s",loginfo);
-                    wLog(loginfo);
+                    fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                    deleteQueue(expelledFilesQueue);
+                    free(expelledFilesQueue);
+                    break;
                 }
-                //File non aggiornato, ma ripristinato correttamente
-                char loginfo[1024];
-                snprintf(loginfo, 1024, INFO "File %s ripristinato nel server (impossibile aggiornarlo)\n", filePath);
-                printf("%s",loginfo);
-                wLog(loginfo);
-                //Invia messaggio valore di ritorno data=NULL e command="UNCHANGED" (impossibile aggiornare il file)
-                response.size = 0;
-                char *r = "UNCHANGED";
-                strcpy(response.command, r);
+                //Invia messaggio valore di ritorno TOOBIG
+                char *r = "TOOBIG";
                 strcpy(response.data, "");
+                strcpy(response.command, r);
                 if (writen(fdSocket, &response, sizeof(msg)) == -1)
                 {
                     fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                    break;
                 }
+                //Invia i file espulsi
+                for (int i = 0; i < n; i++)
+                {
+                    node *newFile = popQueue(expelledFilesQueue);
+                    strcpy(response.command, newFile->id);
+                    response.size = strlen((char *)newFile->data);
+                    strcpy(response.data, (char *)newFile->data);
+                    if (writen(fdSocket, &response, sizeof(msg)) == -1)
+                    {
+                        fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                        break;
+                    }
+                    free(newFile->id);
+                    free(newFile->data);
+                    free(newFile);
+                }
+                free(expelledFilesQueue);
                 break;
             }
-            //File aggiornato correttamente
+            // File aggiornato correttamente
+            int n = queueLength(expelledFilesQueue);
+            if (writen(fdSocket, (void *)&n, sizeof(int)) == -1)
+            {
+                fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                deleteQueue(expelledFilesQueue);
+                free(expelledFilesQueue);
+                break;
+            }
+            // Invia messaggio valore di ritorno UPDATED
+            char *r = "UPDATED";
+            strcpy(response.data, "");
+            strcpy(response.command, r);
+            if (writen(fdSocket, &response, sizeof(msg)) == -1)
+            {
+                fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                break;
+            }
+            // Invia i file espulsi per fare spazio
+            for (int i = 0; i < n; i++)
+            {
+                node *newFile = popQueue(expelledFilesQueue);
+                strcpy(response.command, newFile->id);
+                response.size = strlen((char *)newFile->data);
+                strcpy(response.data, (char *)newFile->data);
+                if (writen(fdSocket, &response, sizeof(msg)) == -1)
+                {
+                    fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                    break;
+                }
+                free(newFile->id);
+                free(newFile->data);
+                free(newFile);
+            }
+            free(expelledFilesQueue);
             LOCK(&statsLock);
             if (maxFiles < hashTable->nentries)
                 maxFiles = hashTable->nentries;
@@ -1251,12 +1384,6 @@ void workerTask(void* args){
             snprintf(loginfo, 1024, INFO "File %s aggiornato nel server\n", filePath);
             printf("%s", loginfo);
             wLog(loginfo);
-            //Invia messaggio valore di ritorno data=NULL
-            strcpy(response.data, "");
-            if (writen(fdSocket, &response, sizeof(msg)) == -1)
-            {
-                fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
-            }
             break;
         }
 
@@ -1274,7 +1401,9 @@ void workerTask(void* args){
                 if (writen(fdSocket, &response, sizeof(msg)) == -1)
                 {
                     fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                    break;
                 }
+                free(filePath);
                 break;
             }
             //File presente nel server e locked dal client (ha effettuato openfile con O_LOCK)
@@ -1295,6 +1424,9 @@ void workerTask(void* args){
                         LOCK(&openFilesListLock);
                         deleteFile(&openFilesList, filePath, fdSocket);
                         UNLOCK(&openFilesListLock);
+                        LOCK(&statsLock);
+                        howManyCloses++;
+                        UNLOCK(&statsLock);
                         LOCK(&filesListLock);
                         deleteFile(&filesList, filePath, fdSocket);
                         UNLOCK(&filesListLock);
@@ -1310,6 +1442,7 @@ void workerTask(void* args){
                         if (writen(fdSocket, &response, sizeof(msg)) == -1)
                         {
                             fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                            break;
                         }
                         break;
                     }
@@ -1331,6 +1464,7 @@ void workerTask(void* args){
                 if (writen(fdSocket, &response, sizeof(msg)) == -1)
                 {
                     fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                    break;
                 }
                 break;
             }
@@ -1354,6 +1488,7 @@ void workerTask(void* args){
             if (writen(fdSocket, &response, sizeof(msg)) == -1)
             {
                 fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                break;
             }
             break;
         }
@@ -1373,7 +1508,9 @@ void workerTask(void* args){
                 if (writen(fdSocket, &response, sizeof(msg)) == -1)
                 {
                     fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                    break;
                 }
+                free(pathname);
                 break;
             }
             UNLOCK(&filesListLock);
@@ -1387,7 +1524,9 @@ void workerTask(void* args){
                 if (writen(fdSocket, &response, sizeof(msg)) == -1)
                 {
                     fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                    break;
                 }
+                free(pathname);
                 break;
             }
 
@@ -1401,7 +1540,9 @@ void workerTask(void* args){
                 if (writen(fdSocket, &response, sizeof(msg)) == -1)
                 {
                     fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                    break;
                 }
+                free(pathname);
                 break;
             }
             //Lock non acquisita, inserisco il client in coda
@@ -1425,7 +1566,9 @@ void workerTask(void* args){
             if (writen(fdSocket, &response, sizeof(msg)) == -1)
             {
                 fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                break;
             }
+            free(param);
             break;
         }
 
@@ -1446,6 +1589,7 @@ void workerTask(void* args){
         if (writen(fdSocket, &response, sizeof(msg)) == -1)
         {
             fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+            break;
         }
 
         //Il primo client in coda su quel file prende la lock
@@ -1455,6 +1599,7 @@ void workerTask(void* args){
         {
             // Nessun client in attesa sul file liberato
             UNLOCK(&queueForLocksLock);
+            free(param);
             break;
         }
 
@@ -1467,6 +1612,7 @@ void workerTask(void* args){
             if (writen(notifiedSocket, &response, sizeof(msg)) == -1)
             {
                 fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                break;
             }
         }
         else{
@@ -1476,12 +1622,14 @@ void workerTask(void* args){
             if (writen(notifiedSocket, &response, sizeof(msg)) == -1)
             {
                 fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                break;
             }
         }
         free(notifyClientNode->data);
         free(notifyClientNode->id);
         free(notifyClientNode);
         UNLOCK(&queueForLocksLock);
+        free(param);
         break;
 
     case CLOSEFILE:
@@ -1503,6 +1651,7 @@ void workerTask(void* args){
             if (writen(fdSocket, &response, sizeof(msg)) == -1)
             {
                 fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                break;
             }
 
             //Il primo client in coda su quel file prende la lock
@@ -1512,6 +1661,7 @@ void workerTask(void* args){
             {
                 //Nessun client in attesa sul file liberato
                 UNLOCK(&queueForLocksLock);
+                free(param);
                 break;
             }
             
@@ -1524,6 +1674,7 @@ void workerTask(void* args){
                 if (writen(notifiedSocket, &response, sizeof(msg)) == -1)
                 {
                     fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                    break;
                 }
             }
             else
@@ -1534,6 +1685,7 @@ void workerTask(void* args){
                 if (writen(notifiedSocket, &response, sizeof(msg)) == -1)
                 {
                     fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                    break;
                 }
             }
             free(notifyClientNode->data);
@@ -1550,14 +1702,57 @@ void workerTask(void* args){
             if (writen(fdSocket, &response, sizeof(msg)) == -1)
             {
                 fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                break;
             }
         }
+        free(param);
         break;
 
     case REMOVEFILE:
         {
             char *pathname = param;
-            if (icl_hash_find(hashTable, (void *)pathname) == NULL)
+            LOCK(&filesListLock);
+            if (containsFile(filesList, param, fdSocket) == 0)
+            {
+                UNLOCK(&filesListLock);
+                // Il client ha la lock sul file specificato
+                if (icl_hash_delete(hashTable, (void *)pathname, free, free) == 0)
+                {
+                    // File rimosso
+                    LOCK(&filesListLock);
+                    deleteFile(&filesList, pathname, fdSocket);
+                    UNLOCK(&filesListLock);
+                    //  Invia messaggio valore di ritorno 0
+                    char *r = "0";
+                    strcpy(response.data, r);
+                    if (writen(fdSocket, &response, sizeof(msg)) == -1)
+                    {
+                        fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                        break;
+                    }
+                    char loginfo[1024];
+                    snprintf(loginfo, 1024, INFO "Il client %ld ha rimosso il file %s\n", fdSocket, pathname);
+                    printf("%s", loginfo);
+                    wLog(loginfo);
+                    free(pathname);
+                    break;
+                }
+                // File non rimosso
+                // Invia messaggio valore di ritorno -1
+                char *r = "-1";
+                strcpy(response.data, r);
+                if (writen(fdSocket, &response, sizeof(msg)) == -1)
+                {
+                    fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                    break;
+                }
+                fprintf(stderr, WARNING "Impossibile rimuovere il file %s\n", pathname);
+                break;
+            }
+            UNLOCK(&filesListLock);
+
+            // File non presente nel server o il client non ha la lock
+            if (icl_hash_find(hashTable, (void*)pathname) == NULL)
             {
                 // File non presente
                 // Invia messaggio valore di ritorno -1
@@ -1566,11 +1761,13 @@ void workerTask(void* args){
                 if (writen(fdSocket, &response, sizeof(msg)) == -1)
                 {
                     fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                    break;
                 }
+                fprintf(stderr, WARNING "Impossibile rimuovere il file %s\n", pathname);
+                free(pathname);
                 break;
             }
-
-            // File presente nel server
+            
             if (tryLock(pathname, fdSocket))
             {
                 // Lock acquisita
@@ -1586,11 +1783,13 @@ void workerTask(void* args){
                     if (writen(fdSocket, &response, sizeof(msg)) == -1)
                     {
                         fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                        break;
                     }
                     char loginfo[1024];
                     snprintf(loginfo, 1024, INFO "Il client %ld ha rimosso il file %s\n", fdSocket, pathname);
                     printf("%s", loginfo);
                     wLog(loginfo);
+                    free(pathname);
                     break;
                 }
                 //File non rimosso
@@ -1600,6 +1799,7 @@ void workerTask(void* args){
                 if (writen(fdSocket, &response, sizeof(msg)) == -1)
                 {
                     fprintf(stderr, WARNING "Non sono riuscito a rispondere ad un client\n");
+                    break;
                 }
                 fprintf(stderr, WARNING "Impossibile rimuovere il file %s\n",pathname);
                 break;
@@ -1617,8 +1817,6 @@ void workerTask(void* args){
         free(commands[i]);
     }
     free(commands);
-    
-
     //Segnala al main di essere terminato
     if (writen(pipe, &fdSocket, sizeof(long)) == -1)
     {
@@ -1689,6 +1887,7 @@ void checkFilesFIFO(char** fileName, void** data){
 }
 
 void checkMemoryFIFO(queue** expelledFilesQueue, size_t newFileSize){
+    printf("FILE SIZE: %ld\n", newFileSize);
     LOCK(&memLock);
     if ((long)newFileSize > hashTable->maxMemory)
     {

@@ -174,7 +174,6 @@ icl_hash_insert(icl_hash_t *ht, void* key, void *data, long fileSize)
         //Spazio non sufficiente
         return NULL;
     }
-    
     curr = (icl_entry_t*)malloc(sizeof(icl_entry_t));
     if(!curr) return NULL;
 
@@ -238,19 +237,24 @@ icl_hash_update_insert(icl_hash_t *ht, void* key, void *data, void **olddata, lo
                 ht->nentries--;
                 UNLOCK(&(ht->tableLock));
             }
-
+            else {
+                 free(curr->key);
+            } 
             if (prev == NULL)
                 ht->buckets[hash_val] = curr->next;
             else
                 prev->next = curr->next;
         }
+        free(curr);
+        break;
     }
     /* Since key was either not found, or found-and-removed, create and prepend new node */
 
     //Controllo ci sia spazio per il nuovo file
     if (ht->currentMemory + fileSize > ht->maxMemory)
     {
-        //Spazio non sufficiente
+        //Spazio non sufficiente per il nuovo contenuto
+        fprintf(stderr, "Impossibile aggiornare il file %s, sarebbe troppo grande per il server\n", (char*)key);
         return NULL;
     }
     curr = (icl_entry_t*)malloc(sizeof(icl_entry_t));
@@ -267,7 +271,7 @@ icl_hash_update_insert(icl_hash_t *ht, void* key, void *data, void **olddata, lo
     /*FINE SEZIONE CRITICA BUCKET*/
 
     LOCK(&(ht->tableLock));
-    ht->currentMemory += fileSize;
+    ht->currentMemory += (long)fileSize;
     ht->nentries++;
     UNLOCK(&(ht->tableLock));
 
@@ -394,14 +398,17 @@ icl_hash_dump(FILE* stream, icl_hash_t* ht)
 
     if(!ht) return -1;
 
+    fprintf(stream, "\n\nFile ancora presenti nel server:\n\n");
     for(i=0; i<ht->nbuckets; i++) {
         bucket = ht->buckets[i];
         for(curr=bucket; curr!=NULL; ) {
             if(curr->key)
-                fprintf(stream, "icl_hash_dump: %s: %p\n", (char *)curr->key, curr->data);
+                fprintf(stream, "Nome file: %s | Dimensione bytes: %ld\n", (char *)curr->key, strnlen((char*)curr->data, MAX_FILE_SIZE));
             curr=curr->next;
         }
     }
+
+    fprintf(stream, "\n\n");
 
     return 0;
 }

@@ -28,7 +28,7 @@
 
 //Imposta la dimensione massima di un file
 #if !defined(MAX_FILE_SIZE)
-#define MAX_FILE_SIZE 1000000
+#define MAX_FILE_SIZE 900000
 #endif
 
 //Imposta la lunghezza massima di un path

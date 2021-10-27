@@ -58,7 +58,7 @@ char* parseArgs(char* arg, unsigned int *n){
     if (number)
     {
         //Trovato un valore per n
-        if (isNumber(number, (long*)n) != 0 || *n <= 0)
+        if (isNumber(number, (long*)n) != 0 || *n < 0)
         {
             //L'argomento passato al comando non è un numero valido
             fprintf(stderr, "Il parametro per -w deve essere un numero positivo o zero\n");
@@ -72,15 +72,17 @@ char* parseArgs(char* arg, unsigned int *n){
 
 /* Metodo utilizzato per visitare ricorsivamente una cartella ed inserire in una coda tutti i file trovati 
     (nel limite di maxfiles) */
-void recursiveFileQueue(char* dirname, queue** fileQueue, int maxfiles){
+int recursiveFileQueue(char* dirname, queue** fileQueue, int filesfound, int maxfiles){
     DIR* dir;
     struct dirent *entry;
+    int x = filesfound;
     if (!(dir = opendir(dirname)))
     {
-        return;
+        return 0;
     }
-
-    while (maxfiles != 0 && (entry = readdir(dir)) != NULL)
+    int ms;
+    ms = (maxfiles == 0) ? INT_MAX : maxfiles;
+    while (x < ms && (entry = readdir(dir)) != NULL)
     {
         if (entry->d_type == DT_DIR)
         {
@@ -89,20 +91,19 @@ void recursiveFileQueue(char* dirname, queue** fileQueue, int maxfiles){
             if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
                 continue;
             snprintf(path, sizeof(path), "%s/%s", dirname, entry->d_name);
-            printf("FOUND:%s\n",path);
-            recursiveFileQueue(path, fileQueue, maxfiles);
+            x += recursiveFileQueue(path, fileQueue, x, maxfiles);
         }
         else
         {
             //Trovato nuovo file, aggiungo alla coda il suo path (opCode e data inutilizzati)
             char* newpath = malloc(sizeof(char) * 1024);
             snprintf(newpath, 1024, "%s/%s", dirname, entry->d_name);
-            printf("ADDING FILE:%s\n",newpath);
             insertQueue(*fileQueue, newpath, -1, NULL);
-            maxfiles--;
+            x++;
         }
     }
     closedir(dir);
+    return x-filesfound;
 }
 
 //Metodo utilizzato per inviare la prima richiesta nella coda requestQueue al server
@@ -112,7 +113,7 @@ void sendRequest(){
     char command = requestNode->opCode;
     switch (command)
     {
-    //TODO Implement commands using API
+    //TODO Fix read,readn
     case 'w':
         {
             unsigned int n = 0;
@@ -131,14 +132,19 @@ void sendRequest(){
             queue* fileQueue = createQueue();
 
             //Inserisce, visitando ricorsivamente le cartelle, i file all'interno della coda
-            recursiveFileQueue(directory, &fileQueue, n);
+            int nfiles = recursiveFileQueue(directory, &fileQueue, 0, n);
             
-            int nfiles = queueLength(fileQueue);
+            printf("NFILES:%d\n",nfiles);
             //Invia tutte le richieste tramite l'API, che si occupera' di salvare i file eventualmente scartati
-            for(int i = 0; i < nfiles; i++)
+            node* newFile = NULL;
+            if (n>nfiles)
             {
-                node* newFile = popQueue(fileQueue);
-                printf("POPPED:%s\n",newFile->id);
+                /* code */
+            }
+            
+            for(int i = n; i < nfiles; i++)
+            {
+                newFile = popQueue(fileQueue);
                 char *filePath = newFile->id;
                 if (openFile(filePath, O_CREATE_OR_O_LOCK) != 0)
                 {
@@ -198,7 +204,7 @@ void sendRequest(){
             }
             else
             {
-                //Se il server ha scartato file, vanno salvati in D_Dirname
+                //Se il server scarta file, vanno salvati in D_Dirname
                 if (writeFile(path, D_Dirname) != 0)
                 {
                     fprintf(stderr, "Impossibile inviare il file %s sul server, errore in scrittura\n", path);
@@ -215,17 +221,18 @@ void sendRequest(){
         {
             //Apre il file richiesto
             char* path = (char*) requestNode->data;
-            if (openFile(path, NOFLAGS) != 0)
+            if (openFile(path, O_LOCK) != 0)
             {
                 fprintf(stderr, "Impossibile aprire il file %s\n",path);
                 break;
             }
 
             //File aperto, leggo il contenuto
-
-            if (readFile(path, (void**)&response.data, &response.size) == 0)
+            void* data;
+            size_t size;
+            if (readFile(path, &data, &size) == 0)
             {
-                if (pFlag) printf("Letti %ld bytes del file %s\n", response.size, path);
+                if (pFlag) printf("Letti %ld bytes del file %s\n", size, path);
             }
             else{
                 if (pFlag) printf("Errore in lettura del file %s\n", path);
@@ -234,7 +241,7 @@ void sendRequest(){
             //Controlla se salvare il file in locale (opzione congiunta -d)
             if (dFlag)
             {
-                if (writeOnDisk(path, response.data, d_Dirname, response.size) == -1)
+                if (writeOnDisk(path, data, d_Dirname, size) != -1)
                 {
                     if (pFlag) printf("File %s salvato in locale nella cartella %s\n", path, d_Dirname);
                 }
@@ -242,6 +249,8 @@ void sendRequest(){
                     if (pFlag) printf("Impossibile salvare il file %s nella cartella %s\n", path, d_Dirname);
                 }
             }
+
+            free(data);
             
             //Chiude il file
             if (closeFile(path) == 0)
@@ -251,11 +260,20 @@ void sendRequest(){
             else{
                 if (pFlag) printf("Errore in chiusura del file %s\n", path);
             }
-            
             break;
         }
     case 'R':
-        /* code */
+        {
+            int n = atoi((char*)requestNode->data);
+            if (readNFiles(n, d_Dirname) != 0)
+            {
+                if (pFlag) printf("Errore nella readNFiles\n");
+            }
+            else {
+                if (pFlag) printf("readNFiles eseguita con successo\n");
+            }
+            break;
+        }
         break;
 
     case 'l':
@@ -415,21 +433,22 @@ int main(int argc, char *argv[])
         case 'R':
             {
                 unsigned int n = 0;
-                if (isNumber(optarg, (long *)&n) != 0 || n <=0 )
+                if (isNumber(optarg, (long *)&n) != 0 || n <0 )
                 {
                     //L'argomento passato al comando non è un numero valido
                     fprintf(stderr, "Il parametro per -R deve essere un numero positivo o zero\n");
                     return 0;
                 }
                 //Inserisce in coda l'operazione in formato "n"
-                buffer = realloc(buffer, sizeof(unsigned int));
-                memcpy(buffer, (char*)&n, sizeof(unsigned int));
+                buffer = realloc(buffer, sizeof(int));
+                snprintf(buffer, sizeof(int), "%u", n);
                 insertQueue(requestQueue, NULL, 'R', (void *)buffer);
+                RFlag = true;
                 break;
             }
 
         case 'd':
-            if (!rFlag || !RFlag)
+            if (!rFlag && !RFlag)
             {
                 fprintf(stderr, "Il comando -d va usato congiuntamente a -r o -R\n");
                 return 0;
