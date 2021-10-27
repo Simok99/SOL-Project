@@ -6,6 +6,8 @@ HDIR = ./headers
 INCLUDE = -I. -I $(HDIR)
 LDFLAG = -L.
 CFILES = ./src/
+EXPELLED_FILES = ./expelledFiles/
+SCRIPT_DIR = ./scripts/
 OBJFILES = ./objs/
 LIB_DIR	= ./libs/
 LIBS = -lpthread
@@ -56,6 +58,16 @@ $(OBJFILES)client.o: $(CFILES)client.c
 
 $(OBJFILES)server.o: $(CFILES)server.c
 
+#Script bash dei test
+test1: client server
+	$(SCRIPT_DIR)test1.sh
+test2: client server
+	$(SCRIPT_DIR)test2.sh
+test3: client server
+	$(SCRIPT_DIR)test3.sh
+statistiche: client server
+	$(SCRIPT_DIR)statistiche.sh
+
 #Clean per eliminare targets, file oggetto e librerie
 clean		: 
 	rm -f $(TARGETS)
@@ -63,3 +75,4 @@ cleanall	: clean
 	\rm -f *~ $(LIB_DIR)*.a $(OBJFILES)*.o $(SRC_DIR)*~
 	\rm -rf $(OBJFILES)
 	\rm -rf $(LIB_DIR)
+	\rm -rf $(EXPELLED_FILES)
